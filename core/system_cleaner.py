@@ -8,18 +8,21 @@ import os
 import shutil
 import subprocess
 
+from core.app_paths import extended_path
+from core.walker import iter_tree
+
 
 def _path_size(path: str) -> int:
     """Tamaño aproximado de un archivo o carpeta, ignorando accesos denegados."""
     total = 0
     try:
-        if os.path.isfile(path):
-            return os.path.getsize(path)
-        for root, _, files in os.walk(path):
-            for f in files:
+        if os.path.isfile(extended_path(path)):
+            return os.path.getsize(extended_path(path))
+        for _directory, files in iter_tree(path):
+            for entry in files:
                 try:
-                    total += os.path.getsize(os.path.join(root, f))
-                except Exception:
+                    total += entry.stat(follow_symlinks=False).st_size
+                except OSError:
                     continue
     except Exception:
         pass

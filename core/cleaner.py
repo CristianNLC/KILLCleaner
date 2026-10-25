@@ -3,7 +3,9 @@
 import ctypes
 import os
 
+from core.app_paths import display_path, extended_path
 from core.config import get_exclusions
+from core.walker import iter_tree
 
 # Rutas que nunca deben tocarse aunque se pasen por error.
 # USERPROFILE solo bloquea coincidencias exactas: dentro vive %TEMP%.
@@ -60,7 +62,7 @@ def get_target_directories():
 
 
 def _norm(path):
-    return os.path.normcase(os.path.normpath(os.path.abspath(path)))
+    return os.path.normcase(os.path.normpath(os.path.abspath(display_path(str(path)))))
 
 
 def _is_within(child, parent):
@@ -119,7 +121,7 @@ def is_safe_target(path, exclusions=None):
 
     try:
         full = _norm(path)
-        if not os.path.isdir(full):
+        if not os.path.isdir(extended_path(full)):
             return False
         _, rest = os.path.splitdrive(full)
         parts = [p for p in rest.split(os.sep) if p]
@@ -131,21 +133,30 @@ def is_safe_target(path, exclusions=None):
         return False
 
     exact, folders = protected_paths()
-    for protected in exact:
-        try:
-            if full == _norm(protected):
-                return False
-        except Exception:
-            continue
-    for protected in folders:
-        if _is_within(full, protected):
-            return False
-
     if exclusions is None:
         exclusions = get_exclusions()
-    for excluded in exclusions:
-        if _is_within(full, excluded):
-            return False
+
+    # Se valida tanto la ruta literal como su destino real: un punto de unión
+    # o enlace podría apuntar a una carpeta protegida.
+    candidates = {full}
+    try:
+        candidates.add(_norm(os.path.realpath(extended_path(full))))
+    except Exception:
+        pass
+
+    for candidate in candidates:
+        for protected in exact:
+            try:
+                if candidate == _norm(protected):
+                    return False
+            except Exception:
+                continue
+        for protected in folders:
+            if _is_within(candidate, protected):
+                return False
+        for excluded in exclusions:
+            if _is_within(candidate, excluded):
+                return False
 
     return True
 
@@ -172,18 +183,18 @@ def scan_target(path, exclusions=None, cancel_event=None):
 
     total_bytes = 0
     file_count = 0
-    for root, dirs, files in os.walk(path, topdown=True):
-        if _cancelled(cancel_event):
-            break
-        dirs[:] = [d for d in dirs if not _is_excluded(os.path.join(root, d), exclusions)]
-        for f in files:
+    for _directory, files in iter_tree(
+        path,
+        cancel_event=cancel_event,
+        skip_dir=lambda candidate: _is_excluded(candidate, exclusions),
+    ):
+        for entry in files:
             if _cancelled(cancel_event):
                 break
-            fp = os.path.join(root, f)
             try:
-                total_bytes += os.path.getsize(fp)
+                total_bytes += entry.stat(follow_symlinks=False).st_size
                 file_count += 1
-            except Exception:
+            except OSError:
                 continue
     return total_bytes, file_count
 
@@ -214,33 +225,29 @@ def clean_directory(path, log_callback=None, dry_run=False, exclusions=None, can
     prefix = "[SIMULACIÓN] " if dry_run else "[BORRADO] "
     visited_dirs = []
 
-    for root, dirs, files in os.walk(path, topdown=True):
-        if _cancelled(cancel_event):
-            break
-        # Podar las carpetas excluidas antes de descender en ellas.
-        allowed = []
-        for d in dirs:
-            dp = os.path.join(root, d)
-            if _is_excluded(dp, exclusions):
-                if log_callback:
-                    log_callback(f"[i] Excluida por configuración: {dp}")
-                continue
-            allowed.append(d)
-        dirs[:] = allowed
-        visited_dirs.append(root)
+    def _log_excluded(candidate):
+        if log_callback:
+            log_callback(f"[i] Excluida por configuración: {display_path(candidate)}")
 
-        for f in files:
+    for current, files in iter_tree(
+        path,
+        cancel_event=cancel_event,
+        skip_dir=lambda candidate: _is_excluded(candidate, exclusions),
+        on_skip=_log_excluded,
+    ):
+        visited_dirs.append(current)
+
+        for entry in files:
             if _cancelled(cancel_event):
                 break
-            fp = os.path.join(root, f)
             try:
-                sz = os.path.getsize(fp)
+                sz = entry.stat(follow_symlinks=False).st_size
                 if not dry_run:
-                    os.remove(fp)
+                    os.remove(entry.path)
                 total_bytes += sz
                 total_count += 1
                 if log_callback:
-                    log_callback(f"{prefix}{f}")
+                    log_callback(f"{prefix}{entry.name}")
             except Exception:
                 # Archivo en uso o sin permisos: se deja intacto
                 continue

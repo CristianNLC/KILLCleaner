@@ -22,6 +22,9 @@ con CustomTkinter; funciona 100 % en local y sin telemetría.
 - **Modo Gaming:** cierre *selectivo* de aplicaciones y purga del portapapeles.
 - **Control de la limpieza:** casillas de áreas de purga, cancelación de
   análisis/limpieza en curso y ventana que recuerda tamaño y posición.
+- **Rendimiento:** recorrido con `os.scandir` (sin llamadas `stat` redundantes),
+  descarte por hash parcial en duplicados y soporte de rutas de más de 260
+  caracteres.
 - **Auditoría:** estado SMART del disco, registro `logs/audit.jsonl` y
   exportación de informes `.txt`.
 
@@ -60,6 +63,10 @@ Estas son las garantías que ofrece la aplicación antes de borrar algo:
     añadir y rota a los 5 MB conservando el historial.
 12. **Cancelación segura.** Si detienes un análisis o una limpieza, lo ya
     borrado se conserva y la Papelera **no** se vacía.
+13. **Sin salir de la carpeta objetivo.** El recorrido no sigue enlaces
+    simbólicos ni puntos de unión (`junction`), y la ruta se valida también por
+    su destino real: un enlace dentro de `%TEMP%` no puede llevar la limpieza a
+    una carpeta protegida.
 
 > Aun así, es una herramienta de mantenimiento: **haz una copia de seguridad de
 > tus datos importantes** y usa el Modo Simulación la primera vez.
@@ -163,6 +170,7 @@ core/
   privileges.py          Detección de admin y reapertura con UAC
   single_instance.py     Mutex de instancia única
   cleaner.py             Temporales, Prefetch y papelera
+  walker.py              Recorrido con os.scandir (sin seguir enlaces)
   system_cleaner.py      Navegadores, Windows Update, dumps, miniaturas
   dev_cleaner.py         Cachés de pip/npm/yarn/Discord/Spotify/__pycache__
   disk_analyzer.py       Tamaño real en disco (Win32 GetCompressedFileSize)

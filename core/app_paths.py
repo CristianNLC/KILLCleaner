@@ -58,3 +58,35 @@ def system_drive() -> str:
     """
     drive = os.environ.get("SystemDrive", "C:").strip().upper()
     return drive if re.fullmatch(r"[A-Z]:", drive) else "C:"
+
+
+MAX_PATH = 260
+
+
+def extended_path(path: str) -> str:
+    """Devuelve una ruta absoluta con prefijo ``\\\\?\\`` si supera MAX_PATH.
+
+    El prefijo permite que las API de Windows trabajen con rutas de más de 260
+    caracteres aunque la directiva ``LongPathsEnabled`` esté desactivada. Para
+    rutas cortas se devuelve la ruta absoluta sin prefijo.
+    """
+    if not path:
+        return path
+    if path.startswith("\\\\?\\"):
+        return path
+
+    absolute = os.path.abspath(path)
+    if len(absolute) < MAX_PATH:
+        return absolute
+    if absolute.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + absolute[2:]
+    return "\\\\?\\" + absolute
+
+
+def display_path(path: str) -> str:
+    """Quita el prefijo ``\\\\?\\`` para mostrar la ruta al usuario."""
+    if path.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + path[8:]
+    if path.startswith("\\\\?\\"):
+        return path[4:]
+    return path

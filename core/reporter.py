@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+from core.app_paths import system_drive
+
 
 def export_maintenance_report(log_content, stats_dict, target_path):
     """Escribe un informe de auditoría con el estado del sistema y el registro.
@@ -16,6 +18,7 @@ def export_maintenance_report(log_content, stats_dict, target_path):
     """
     try:
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        drive = system_drive()
         report_lines = [
             "============================================================",
             "                KILLCleaner Maintenance Report              ",
@@ -25,7 +28,7 @@ def export_maintenance_report(log_content, stats_dict, target_path):
             "------------------------------------------------------------",
             "RESUMEN DE ESTADO Y SALUD DEL SISTEMA:",
             f"  - Salud de Disco (SMART) : {stats_dict.get('smart', 'Desconocido')}",
-            f"  - Espacio Libre en C:   : {stats_dict.get('disk_free', 'Calculando...')}",
+            f"  - Espacio libre ({drive}) : {stats_dict.get('disk_free', 'Calculando...')}",
             f"  - Memoria RAM en Uso   : {stats_dict.get('ram_used', 'Calculando...')}",
             f"  - Residuos Estimados   : {stats_dict.get('trash', '-- MB')}",
             "------------------------------------------------------------",
