@@ -1,4 +1,3 @@
-import threading
 import customtkinter as ctk
 from tkinter import messagebox
 from ui.theme import *

@@ -7,7 +7,7 @@ import sys
 
 import psutil
 
-from core.reporter import export_maintenance_report  # reexportado por compatibilidad
+from core.reporter import export_maintenance_report  # noqa: F401  (reexportado por compatibilidad)
 
 # Aplicaciones que el Modo Gaming puede cerrar. El usuario decide cuáles.
 GAMING_CANDIDATES = {

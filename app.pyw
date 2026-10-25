@@ -22,7 +22,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+from core.logging_setup import get_logger, install_exception_hooks, setup_logging  # noqa: E402
 from core.single_instance import SingleInstance  # noqa: E402
+
+setup_logging()
+install_exception_hooks()
 
 _instance = SingleInstance(r"Local\KILLCleaner.SingleInstance")
 
@@ -71,6 +75,11 @@ def _run_silent_clean() -> int:
             f"[✓] Total: {round(total_bytes / (1024 * 1024), 2)} MB liberados "
             f"en {total_files} archivos."
         )
+        get_logger("silent").info(
+            "Limpieza automática: %s archivos, %.2f MB",
+            total_files,
+            total_bytes / (1024 * 1024),
+        )
         log_action(
             "clean_temp_silent",
             target="temporales",
@@ -82,6 +91,7 @@ def _run_silent_clean() -> int:
         return 0
     except Exception as e:
         lines.append(f"[x] Error durante la limpieza automática: {e}")
+        get_logger("silent").exception("Error en la limpieza automática")
         log_action(
             "clean_temp_silent",
             target="temporales",

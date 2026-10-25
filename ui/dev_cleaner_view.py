@@ -1,10 +1,9 @@
-import os
 import threading
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
 
 from ui.theme import (
-    COLOR_BG_DARK, COLOR_SIDEBAR, COLOR_CARD, COLOR_CARD_HOVER,
+    COLOR_BG_DARK, COLOR_SIDEBAR, COLOR_CARD,
     COLOR_ACCENT, COLOR_ACCENT_HOVER, COLOR_DANGER, COLOR_DANGER_HOVER,
     COLOR_TEXT_PRIMARY, COLOR_TEXT_SECONDARY, FONT_FAMILY
 )

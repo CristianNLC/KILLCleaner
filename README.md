@@ -35,6 +35,8 @@ con CustomTkinter; funciona 100 % en local y sin telemetría.
   descarga ni instala nada.
 - **Auditoría:** estado SMART del disco, registro `logs/audit.jsonl` y
   exportación de informes `.txt` o HTML autocontenido.
+- **Diagnóstico local:** registro rotativo `logs/killcleaner.log` con errores no
+  controlados, útil cuando la app se cierra de forma inesperada.
 
 ---
 
@@ -124,6 +126,7 @@ Para incluirlas en el `.exe`, deja `secrets.json` en la **raíz del proyecto** o
 - Windows 10 u 11.
 - Python 3.10 o superior (probado con 3.14).
 - Dependencias: `customtkinter`, `psutil`, `pillow`, `requests`.
+- Para pruebas y estilo: `pytest` y `ruff` (`requirements-dev.txt`).
 
 ---
 
@@ -163,7 +166,9 @@ pyinstaller KILLCleaner.spec
 ```
 
 El `.spec` genera un único `dist\KILLCleaner.exe` sin consola y con manifiesto
-`uac_admin` (pide elevación al abrirse).
+`uac_admin` (pide elevación al abrirse). El recurso de versión de Windows
+(Propiedades → Detalles) se genera automáticamente desde `core/version.py`, así
+que `FileVersion` y `ProductVersion` siempre coinciden con la app.
 
 Instalador (requiere [Inno Setup](https://jrsoftware.org/isinfo.php)):
 
@@ -172,6 +177,22 @@ iscc installer.iss
 ```
 
 Resultado: `dist_installer\KILLCleaner_Setup.exe`.
+
+---
+
+## ✅ Pruebas y calidad
+
+```powershell
+pip install -r requirements-dev.txt
+ruff check .
+pytest -q
+```
+
+Las suites cubren seguridad de rutas, limpieza real y simulación, cancelación,
+duplicados, rutas largas, auditoría, informes y las ventanas de la interfaz. En
+GitHub Actions (`.github/workflows/ci.yml`) se ejecutan en Windows con Python
+3.12, 3.13 y 3.14; las pruebas de interfaz se omiten solas si la sesión no tiene
+un escritorio disponible.
 
 ---
 
@@ -201,6 +222,7 @@ core/
   secrets.py             Carga de credenciales locales (env o secrets.json)
   config.py              Configuración persistente y exclusiones
   audit.py               Registro de auditoría logs/audit.jsonl
+  logging_setup.py       Registro rotativo logs/killcleaner.log
   recycle.py             Envío a la Papelera con SHFileOperationW
 ui/
   main_window.py         Ventana principal (3 pestañas + modales)
@@ -210,6 +232,10 @@ assets/icon.ico
 data/                    config.json, secrets.example.json e informe de ejemplo
 logs/                    Registros de limpieza y auditoría (no versionado)
 secrets.json             Credenciales locales opcionales (no versionado)
+tests/                   Pruebas de regresión (pytest)
+  scripts/               Suites por paquete
+.github/workflows/ci.yml Integración continua en Windows
+pyproject.toml           Metadatos, configuración de ruff y pytest
 ```
 
 **Ubicación de datos:** desde el código fuente todo queda dentro del proyecto

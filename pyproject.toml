@@ -1,0 +1,36 @@
+[project]
+name = "killcleaner"
+version = "1.1.0"
+description = "Suite de mantenimiento y limpieza para Windows"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "CristianNLC" }]
+dependencies = [
+    "customtkinter==6.0.0",
+    "psutil==7.2.2",
+    "pillow>=10.0.0",
+    "requests>=2.31,<3",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller==6.22.3"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["build", "dist", "dist_installer", ".git"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B"]
+# ui/theme.py se importa con * en todas las vistas: es el patrón del proyecto.
+ignore = ["E501", "F403", "F405"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/scripts/*.py" = ["E402"]
+"tests/benchmarks/*.py" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

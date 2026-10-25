@@ -2,6 +2,7 @@ import os
 import re
 import shutil
 import threading
+import logging
 import psutil
 import webbrowser
 import requests
@@ -30,6 +31,8 @@ from ui.services_view import ServicesOptimizerWindow
 from ui.large_files_view import LargeFilesWindow
 from ui.audit_view import AuditHistoryWindow
 from ui.boot_view import BootDiagnosticsWindow
+
+_LOG = logging.getLogger("killcleaner.ui")
 
 
 def load_theme_preference():
@@ -412,7 +415,7 @@ class CleanerWindow(ctk.CTk):
     # --- PESTAÑAS ---
     def _build_dashboard_tab(self):
         self.tab_dash = ctk.CTkScrollableFrame(self.views_container, fg_color="transparent")
-        
+
         # Banner Principal
         banner = ctk.CTkFrame(self.tab_dash, fg_color=COLOR_CARD, corner_radius=10)
         banner.pack(fill="x", pady=(0, 10), ipady=10)
@@ -972,6 +975,8 @@ class CleanerWindow(ctk.CTk):
 
     def log(self, message):
         """Escribe mensajes en el registro técnico de forma hilo-segura."""
+        _LOG.info(message)
+
         def _do_log():
             self.log_area.configure(state="normal")
             self.log_area.insert("end", message + "\n")
@@ -1549,7 +1554,7 @@ class CleanerWindow(ctk.CTk):
         self.log("\n=== COMPROBACIÓN DE INTEGRIDAD SFC ===")
         code = opt.run_sfc_scan(log_callback=self.log)
         self.log(f"[✓] SFC finalizado (Código: {code}).")
-        
+
         self.set_status("🟢", f"Escaneo SFC finalizado (Código: {code}).", busy=False, progress_val=1.0)
         self._show_modal_alert("Reparación SFC", "¡Comprobación SFC Finalizada!", f"El análisis de integridad sfc /scannow culminó con código de salida: {code}.", icon="🩺", status_type="info")
 

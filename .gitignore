@@ -9,3 +9,7 @@ data/config.json
 logs/
 # Credenciales locales: nunca se versionan
 secrets.json
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
