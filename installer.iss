@@ -11,8 +11,9 @@ OutputBaseFilename=KILLCleaner_Setup
 SetupIconFile=assets\icon.ico
 Compression=lzma
 SolidCompression=yes
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=admin
+LicenseFile=LICENSE
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -23,6 +24,8 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 [Files]
 ; Binario compilado
 Source: "dist\KILLCleaner.exe"; DestDir: "{app}"; Flags: ignoreversion
+; Licencia
+Source: "LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 ; Recursos y soporte
 Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs
 

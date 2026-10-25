@@ -1,19 +1,23 @@
 ============================================================
-                KILLCleaner Maintenance Report              
+                KILLCleaner Maintenance Report
 ============================================================
-Fecha de Generación: 2026-09-21 01:04:12
+Fecha de Generación: 2026-10-25 00:00:00
 Sistema Operativo: Windows
 ------------------------------------------------------------
 RESUMEN DE ESTADO Y SALUD DEL SISTEMA:
   - Salud de Disco (SMART) : OK
-  - Espacio Libre en C:   : 120 GB
-  - Memoria RAM en Uso   : 8 GB
-  - Residuos Estimados   : 0 MB
+  - Espacio Libre en C:   : 120 GB Libres
+  - Memoria RAM en Uso   : 38%
+  - Residuos Estimados   : 412.5 MB
 ------------------------------------------------------------
 REGISTRO DE OPERACIONES Y MANTENIMIENTOS REALIZADOS:
 
-Sample log entry
+--- ANÁLISIS DE RESIDUOS BÁSICOS ---
+[*] Temporales de Usuario: 812 archivos (356.2 MB)
+[*] Temporales de Windows: 140 archivos (48.9 MB)
+[*] Caché Prefetch: 63 archivos (7.4 MB)
+[>] Total recuperable: 412.5 MB en 1015 archivos.
 
 ============================================================
-            Fin del Informe - KILLCleaner v1.0              
+            Fin del Informe - KILLCleaner v1.0
 ============================================================

@@ -1,40 +1,174 @@
-Set-Content -Path README.md -Value @"
-# ⚡ KILLCleaner v1.0 — Windows Optimization & Maintenance Suite
+# ⚡ KILLCleaner v1.0
 
-**KILLCleaner** es una suite moderna, gratuita y de código abierto para la optimización, mantenimiento forense y limpieza profunda de sistemas operativos Windows, desarrollada con Python y CustomTkinter.
-
----
-
-## 🚀 Capacidades Principales
-
-- **Limpieza del Sistema:** Purgado seguro de \`%TEMP%\`, \`Prefetch\`, descargas residuales de Windows Update y vaciado nativo de la Papelera de Reciclaje.
-- **Mantenimiento Profundo:** Cachés de navegadores (Chrome, Edge, Brave), reportes de errores y volcados de memoria (\`.dmp\`).
-- **Reparación de Componentes:** Integración directa con SFC (\`sfc /scannow\`) y mantenimiento de la imagen de Windows (\`DISM\`).
-- **Seguridad y Restauración:** Creación de Puntos de Restauración del Sistema antes de limpiezas críticas.
-- **Optimización de Almacenamiento:** Ejecución de comandos TRIM para SSD y desfragmentación inteligente de HDD.
-- **Cachés de Desarrollo:** Detección y purga de dependencias en \`pip\`, \`npm\`, \`yarn\`, Spotify, Discord y carpetas \`__pycache__\`.
-- **Modo Rendimiento (Gaming):** Liberador de memoria RAM en segundo plano y purga del portapapeles.
-- **Auditoría & Diagnóstico:** Consulta de salud SMART del disco principal y exportación de reportes de mantenimiento.
+Suite de escritorio para Windows que reúne limpieza de residuos, mantenimiento
+del sistema y utilidades de diagnóstico en una sola interfaz. Hecha en Python
+con CustomTkinter; funciona 100 % en local y sin telemetría.
 
 ---
 
-## 🛠️ Instalación y Uso
+## 🚀 Capacidades
 
-### Ejecutable Listo para Usar
-Descarga el instalador oficial desde el apartado de **Releases** (\`KILLCleaner_Setup.exe\`) e instálalo con permisos de administrador.
+- **Limpieza del sistema:** `%TEMP%`, `Temp` de Windows, `Prefetch` y papelera
+  de reciclaje (API nativa `SHEmptyRecycleBin`).
+- **Mantenimiento profundo:** cachés de Chrome/Edge/Brave, descargas de Windows
+  Update, volcados de memoria (`.dmp`) y caché de miniaturas.
+- **Reparación de componentes:** `sfc /scannow` y DISM (`AnalyzeComponentStore`,
+  `StartComponentCleanup`, `RestoreHealth`).
+- **Seguridad y restauración:** creación de puntos de restauración del sistema.
+- **Almacenamiento:** TRIM para SSD y optimización de HDD (`defrag /L /O`).
+- **Cachés de desarrollo:** `pip`, `npm`, `yarn`, Discord, Spotify y
+  `__pycache__` recursivo.
+- **Modo Gaming:** cierre *selectivo* de aplicaciones y purga del portapapeles.
+- **Auditoría:** estado SMART del disco y exportación de informes `.txt`.
 
-### Ejecución desde Código Fuente
-1. Clonar el repositorio:
-   \`\`\`bash
-   git clone https://github.com/CristianNLC/KILLCleaner.git
-   cd KILLCleaner
-   \`\`\`
-2. Instalar dependencias:
-   \`\`\`bash
-   pip install -r requirements.txt
-   \`\`\`
-3. Iniciar la aplicación:
-   \`\`\`bash
-   python app.pyw
-   \`\`\`
-"@
+---
+
+## 🛡️ Seguridad por diseño
+
+Estas son las garantías que ofrece la aplicación antes de borrar algo:
+
+1. **Modo simulación (dry-run).** La casilla `🧪 Modo simulación` del Resumen
+   calcula qué se borraría y cuánto se liberaría **sin eliminar nada**.
+2. **Rutas protegidas.** `clean_directory()` rechaza raíces de unidad, `Windows`,
+   `Users`, `Program Files` y el perfil del usuario, aunque se le pasen por error.
+3. **Confirmación explícita** antes de cada operación destructiva (papelera,
+   SFC, TRIM, servicios, tareas programadas).
+4. **Cierre amable de procesos.** El Modo Gaming envía `WM_CLOSE` (como pulsar
+   la X) para que las apps guarden su sesión. Solo mata el proceso si el usuario
+   marca «Forzar cierre» de forma consciente.
+5. **Nunca se cierra el navegador a la fuerza** durante la limpieza profunda: si
+   está bloqueando la caché, esa caché se omite.
+6. **Instancia única.** Un mutex de Windows impide que dos copias limpien a la vez.
+7. **La limpieza automática no destruye datos.** `--silent-clean` solo purga
+   temporales y Prefetch: no vacía la papelera ni cierra aplicaciones.
+
+> Aun así, es una herramienta de mantenimiento: **haz una copia de seguridad de
+> tus datos importantes** y usa el Modo Simulación la primera vez.
+
+---
+
+## 🔑 Credenciales (nunca versionadas)
+
+El buzón de sugerencias (Web3Forms) y la cuenta de donaciones **no están en el
+código**. Se resuelven, por orden, desde:
+
+1. Variables de entorno: `KILLCLEANER_FEEDBACK_KEY` y `KILLCLEANER_DONATION_EMAIL`.
+2. `data/secrets.json` (desde fuente) o `%LOCALAPPDATA%\KILLCleaner\secrets.json` (.exe).
+3. Un `secrets.json` junto al `.exe`.
+
+Plantilla lista para copiar en `data/secrets.example.json`:
+
+```json
+{
+  "feedback_access_key": "tu-clave-de-web3forms",
+  "donation_email": "tu-cuenta@ejemplo.com"
+}
+```
+
+Sin clave, el formulario de contacto aparece desactivado y el bloque de Mercado
+Pago se oculta; el resto de la aplicación funciona igual. `secrets.json` está en
+`.gitignore`.
+
+Para incluirlas en el `.exe`, copia `secrets.json` a la **raíz del proyecto**
+antes de ejecutar PyInstaller: el `.spec` solo lo empaqueta si existe.
+
+> ⚠️ Cualquier clave que viaje dentro de un `.exe` es extraíble. No la uses para
+> nada sensible y rótala si sospechas que se filtró.
+
+---
+
+## 🛠️ Requisitos
+
+- Windows 10 u 11.
+- Python 3.10 o superior (probado con 3.14).
+- Dependencias: `customtkinter`, `psutil`, `pillow`, `requests`.
+
+---
+
+## ▶️ Ejecución desde el código fuente
+
+```powershell
+git clone https://github.com/CristianNLC/KILLCleaner.git
+cd KILLCleaner
+pip install -r requirements.txt
+python app.pyw
+```
+
+Muchas funciones (Prefetch, SFC, DISM, servicios de `HKLM`, `winsock reset`)
+necesitan permisos de administrador. Si la app se abre sin ellos, muestra un
+aviso en la parte superior con el botón **Reiniciar como admin**.
+
+---
+
+## ⏰ Limpieza automática (sin interfaz)
+
+```powershell
+python app.pyw --silent-clean
+```
+
+Purga únicamente `%TEMP%`, `Temp` de Windows y `Prefetch`, y escribe el
+resultado en `logs/auto_clean_AAAA-MM-DD.log`. Pensado para el Programador de
+Tareas de Windows, que la propia app configura desde
+**Utilidades → Tareas Programadas**.
+
+---
+
+## 📦 Compilación
+
+```powershell
+pip install pyinstaller
+pyinstaller KILLCleaner.spec
+```
+
+El `.spec` genera un único `dist\KILLCleaner.exe` sin consola y con manifiesto
+`uac_admin` (pide elevación al abrirse).
+
+Instalador (requiere [Inno Setup](https://jrsoftware.org/isinfo.php)):
+
+```powershell
+iscc installer.iss
+```
+
+Resultado: `dist_installer\KILLCleaner_Setup.exe`.
+
+---
+
+## 🗂️ Estructura
+
+```
+app.pyw                  Punto de entrada (GUI y --silent-clean)
+core/
+  app_paths.py           Rutas de config/logs (fuente vs .exe)
+  privileges.py          Detección de admin y reapertura con UAC
+  single_instance.py     Mutex de instancia única
+  cleaner.py             Temporales, Prefetch y papelera
+  system_cleaner.py      Navegadores, Windows Update, dumps, miniaturas
+  dev_cleaner.py         Cachés de pip/npm/yarn/Discord/Spotify/__pycache__
+  disk_analyzer.py       Tamaño real en disco (Win32 GetCompressedFileSize)
+  duplicate_finder.py    Duplicados por SHA-256 en dos fases
+  startup_manager.py     Entradas de inicio del registro (con respaldo)
+  services_optimizer.py  Servicios de Windows (DiagTrack, WerSvc, Spooler)
+  dism_tool.py           DISM en streaming
+  optimizer.py           SFC, TRIM, SMART, restauración, tareas
+  reporter.py            Informes de mantenimiento
+  secrets.py             Carga de credenciales locales (env o secrets.json)
+ui/
+  main_window.py         Ventana principal (3 pestañas + modales)
+  theme.py               Paleta y tipografía
+  *_view.py              Subventanas de cada utilidad
+assets/icon.ico
+data/                    config.json, secrets.example.json e informe de ejemplo
+logs/                    Registros de limpiezas automáticas (no versionado)
+secrets.json             Credenciales locales opcionales (no versionado)
+```
+
+**Ubicación de datos:** desde el código fuente todo queda dentro del proyecto
+(`data/`, `logs/`). El `.exe` instalado usa `%LOCALAPPDATA%\KILLCleaner` para no
+intentar escribir en `Program Files`.
+
+---
+
+## 📄 Licencia
+
+Distribuido bajo licencia **MIT**. Consulta el archivo [LICENSE](LICENSE).
+

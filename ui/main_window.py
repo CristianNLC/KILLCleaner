@@ -5,10 +5,14 @@ import psutil
 import webbrowser
 import requests
 import json
+import tkinter as tk
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
 
 from ui.theme import *
+from core.app_paths import data_dir
+from core.privileges import is_admin, relaunch_as_admin
+from core.secrets import get_donation_email, get_feedback_key
 from core.cleaner import get_target_directories, scan_target, clean_directory, empty_recycle_bin
 import core.system_cleaner as sys_cleaner
 import core.optimizer as opt
@@ -19,9 +23,8 @@ from ui.dism_view import DismManagerWindow
 from ui.duplicate_view import DuplicateFinderWindow
 from ui.services_view import ServicesOptimizerWindow
 
-FEEDBACK_ACCESS_KEY = "6468511d-508d-4078-aa8f-44f33fb19a29"
-
-CONFIG_DIR = os.path.join(os.getcwd(), "data")
+# La configuración se guarda en data/ (fuente) o %LOCALAPPDATA%\KILLCleaner (.exe)
+CONFIG_DIR = data_dir()
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 
 
@@ -61,6 +64,15 @@ class CleanerWindow(ctk.CTk):
     def __init__(self):
         super().__init__()
 
+        # Carga del icono mediante ruta absoluta física del proyecto
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        icon_path = os.path.join(base_dir, "assets", "icon.ico")
+        if os.path.exists(icon_path):
+            try:
+                self.iconbitmap(icon_path)
+            except (tk.TclError, Exception):
+                pass
+
         ctk.set_default_color_theme("blue")
 
         self.title("KILLCleaner - Centro de Optimización")
@@ -75,13 +87,6 @@ class CleanerWindow(ctk.CTk):
         self.geometry(f"{app_width}x{app_height}+{max(0, x)}+{max(0, y)}")
         self.minsize(940, 620)
         self.configure(fg_color=COLOR_BG_DARK)
-
-        icon_path = os.path.join("assets", "icon.ico")
-        if os.path.exists(icon_path):
-            try:
-                self.iconbitmap(icon_path)
-            except Exception:
-                pass
 
         self.console_visible = False
         self._build_layout()
@@ -196,6 +201,43 @@ class CleanerWindow(ctk.CTk):
         self.status_progress.pack(fill="x", padx=14, pady=(0, 8))
         self.status_progress.set(0)
 
+        # 2.2b AVISO DE PRIVILEGIOS (solo visible si no hay admin)
+        self.admin_banner = ctk.CTkFrame(
+            self.main_container, fg_color=("#fef3c7", "#3a2f0b"), corner_radius=8
+        )
+        admin_inner = ctk.CTkFrame(self.admin_banner, fg_color="transparent")
+        admin_inner.pack(fill="x", padx=12, pady=8)
+
+        ctk.CTkLabel(admin_inner, text="🔒", font=ctk.CTkFont(size=15)).pack(
+            side="left", padx=(0, 8)
+        )
+        ctk.CTkLabel(
+            admin_inner,
+            text="Sin privilegios de administrador: Prefetch, SFC, DISM y servicios del sistema pueden fallar.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            text_color=("#92400e", "#facc15"),
+            anchor="w",
+            justify="left",
+            wraplength=500,
+        ).pack(side="left", fill="x", expand=True)
+
+        ctk.CTkButton(
+            admin_inner,
+            text="Reiniciar como admin",
+            width=150,
+            height=28,
+            fg_color=COLOR_ACCENT,
+            hover_color=COLOR_ACCENT_HOVER,
+            text_color="#18181b",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+            command=self._elevate_privileges,
+        ).pack(side="right", padx=(8, 0))
+
+        if is_admin():
+            self.admin_banner.pack_forget()
+        else:
+            self.admin_banner.pack(fill="x", pady=(0, 10))
+
         # 2.3 Vistas por pestaña
         self.views_container = ctk.CTkFrame(self.main_container, fg_color="transparent")
         self.views_container.pack(fill="both", expand=True)
@@ -295,6 +337,25 @@ class CleanerWindow(ctk.CTk):
 
         self.after(0, _build_modal)
 
+    def _elevate_privileges(self):
+        """Cierra la app y la reabre solicitando UAC (requiere confirmación)."""
+        if not messagebox.askyesno(
+            "Reiniciar como administrador",
+            "Se cerrará esta ventana y se abrirá KILLCleaner con permisos elevados "
+            "(Windows pedirá confirmación). ¿Continuar?",
+        ):
+            return
+
+        if relaunch_as_admin():
+            self.destroy()
+        else:
+            messagebox.showerror(
+                "Permisos",
+                "No se pudo solicitar la elevación.\n\n"
+                "Cierra KILLCleaner y ábrelo con clic derecho → "
+                "'Ejecutar como administrador'.",
+            )
+
     def _create_nav_btn(self, text, command):
         btn = ctk.CTkButton(
             self.sidebar, text=text, fg_color="transparent", hover_color=COLOR_CARD,
@@ -383,6 +444,14 @@ class CleanerWindow(ctk.CTk):
         self.chk_recycle = ctk.CTkCheckBox(options_card, text="Vaciar Papelera automáticamente", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLOR_TEXT_PRIMARY)
         self.chk_recycle.pack(anchor="w", padx=16, pady=3)
 
+        self.chk_dry_run = ctk.CTkCheckBox(
+            options_card,
+            text="🧪 Modo simulación (no borrar nada)",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            text_color=COLOR_ACCENT,
+        )
+        self.chk_dry_run.pack(anchor="w", padx=16, pady=(8, 3))
+
     def _change_theme_mode(self, new_theme):
         """Cambia el modo de apariencia y guarda la preferencia en data/config.json."""
         ctk.set_appearance_mode(new_theme)
@@ -406,7 +475,7 @@ class CleanerWindow(ctk.CTk):
         self._create_action_row(self.tab_tools, "🧬 Buscador de Duplicados (SHA-256)", "Encuentra copias exactas de archivos mediante cálculo criptográfico.", "Examinar", COLOR_AMBER, self.open_duplicate_finder, accent_bar=COLOR_AMBER)
         self._create_action_row(self.tab_tools, "🚀 Gestor de Aplicaciones de Inicio", "Administra los programas que arrancan con Windows para acelerar el inicio.", "Gestionar", COLOR_BLUE, self.open_startup_manager, accent_bar=COLOR_BLUE)
         self._create_action_row(self.tab_tools, "📦 Caché Dev / Gestores de Paquetes", "Purga cachés voluminosas de pip, npm, discord, spotify y __pycache__.", "Limpiar", COLOR_PURPLE, self.open_dev_cleaner, accent_bar=COLOR_PURPLE)
-        self._create_action_row(self.tab_tools, "🎮 Modo Gaming (Liberador de RAM)", "Finaliza procesos no esenciales en segundo plano y purga el portapapeles.", "Activar", COLOR_SUCCESS, self.start_gaming_mode_thread, accent_bar=COLOR_SUCCESS)
+        self._create_action_row(self.tab_tools, "🎮 Modo Gaming (Liberador de RAM)", "Elige qué aplicaciones cerrar (con guardado seguro) y purga el portapapeles.", "Activar", COLOR_SUCCESS, self.start_gaming_mode_thread, accent_bar=COLOR_SUCCESS)
         self._create_action_row(self.tab_tools, "🛡️ Servicios Innecesarios & Telemetría", "Desactiva servicios secundarios como DiagTrack o Spooler.", "Ajustar", COLOR_CYAN, self.open_services_optimizer, accent_bar=COLOR_CYAN)
         self._create_action_row(self.tab_tools, "⏰ Tareas Programadas de Limpieza", "Programa mantenimientos periódicos de limpieza en el Programador de Windows.", "Configurar", COLOR_BLUE, self.open_scheduled_tasks_modal, accent_bar=COLOR_BLUE)
         self._create_action_row(self.tab_tools, "📄 Exportar Reporte de Mantenimiento", "Genera y guarda un informe de auditoría detallado con las acciones realizadas.", "Exportar", COLOR_SUCCESS, self.export_report_action, accent_bar=COLOR_SUCCESS)
@@ -485,7 +554,8 @@ class CleanerWindow(ctk.CTk):
             ("🧬 Buscador de Duplicados", "Calcula el hash criptográfico SHA-256 de los archivos para encontrar duplicados exactos aunque tengan nombres distintos."),
             ("🚀 Gestor de Aplicaciones de Inicio", "Administra los programas que arrancan con Windows para acelerar el tiempo de inicio."),
             ("📦 Caché Dev / Gestores de Paquetes", "Purga cachés voluminosas de pip, npm, discord, spotify y carpetas __pycache__."),
-            ("🎮 Modo Gaming (Liberador de RAM)", "Finaliza procesos prescindibles en segundo plano (Discord, Spotify, navegadores) para dejar libre el procesador y la memoria."),
+            ("🎮 Modo Gaming (Liberador de RAM)", "Muestra las apps abiertas (Discord, Spotify, navegadores...) y cierra solo las que marques. Primero pide un cierre amable para que puedan guardar su sesión; nunca fuerza el cierre salvo que lo autorices."),
+            ("🧪 Modo Simulación", "Marca esta casilla en el Resumen para ver qué se borraría y cuánto espacio se liberaría, sin eliminar ningún archivo. Ideal para la primera vez."),
             ("🛡️ Servicios & Telemetría", "Permite pausar servicios en segundo plano como DiagTrack (rastreo de diagnóstico) o cola de impresión si no se emplean."),
             ("⏰ Tareas Programadas", "Automatiza la limpieza periódica semanal o diaria mediante el programador de Windows sin interrumpir tu trabajo."),
             ("📄 Exportar Reporte de Mantenimiento", "Guarda auditorías completas de espacio liberado, resumen de acciones y estado SMART en archivo de texto .txt."),
@@ -501,6 +571,9 @@ class CleanerWindow(ctk.CTk):
 
     # --- VENTANA MODAL DE FEEDBACK / CONTACTO ---
     def open_feedback_modal(self):
+        # La clave se carga desde data/secrets.json o variables de entorno
+        access_key = get_feedback_key()
+
         modal = ctk.CTkToplevel(self)
         modal.title("Contacto y Sugerencias")
         modal.geometry("500x420")
@@ -586,6 +659,13 @@ class CleanerWindow(ctk.CTk):
             user_email = entry_email.get().strip()
             mensaje_cuerpo = txt_message.get("1.0", "end").strip()
 
+            if not access_key:
+                lbl_status.configure(
+                    text="⚠️ Envío no configurado (falta data/secrets.json).",
+                    text_color=COLOR_DANGER,
+                )
+                return
+
             if not mensaje_cuerpo:
                 lbl_status.configure(text="⚠️ El mensaje no puede estar vacío.", text_color=COLOR_DANGER)
                 return
@@ -595,7 +675,7 @@ class CleanerWindow(ctk.CTk):
 
             def _worker():
                 payload = {
-                    "access_key": FEEDBACK_ACCESS_KEY,
+                    "access_key": access_key,
                     "subject": f"KILLCleaner: {categoria}",
                     "replyto": user_email if user_email else "no-reply@killcleaner.local",
                     "category": categoria,
@@ -629,6 +709,14 @@ class CleanerWindow(ctk.CTk):
             command=_send_action
         )
         btn_send.pack(fill="x", padx=16, pady=(0, 10))
+
+        if not access_key:
+            lbl_status.configure(
+                text="⚠️ Envío desactivado: falta data/secrets.json "
+                     "(usa secrets.example.json como plantilla).",
+                text_color=COLOR_WARNING,
+            )
+            btn_send.configure(state="disabled")
 
     # --- VENTANA MODAL DE DONACIONES ---
     def open_donation_modal(self):
@@ -693,43 +781,44 @@ class CleanerWindow(ctk.CTk):
         )
         btn_kofi.pack(fill="x")
 
-        # 3. Transferencia Directa (Mercado Pago)
-        cbu_card = ctk.CTkFrame(content_box, fg_color="#101216", corner_radius=8)
-        cbu_card.pack(fill="x", padx=16, pady=8)
+        # 3. Transferencia Directa (Mercado Pago) — solo si está configurada
+        mp_email = get_donation_email()
+        if mp_email:
+            cbu_card = ctk.CTkFrame(content_box, fg_color="#101216", corner_radius=8)
+            cbu_card.pack(fill="x", padx=16, pady=8)
 
-        cbu_info = ctk.CTkFrame(cbu_card, fg_color="transparent")
-        cbu_info.pack(side="left", fill="both", expand=True, padx=12, pady=8)
+            cbu_info = ctk.CTkFrame(cbu_card, fg_color="transparent")
+            cbu_info.pack(side="left", fill="both", expand=True, padx=12, pady=8)
 
-        ctk.CTkLabel(
-            cbu_info, text="💳 Mercado Pago / Transferencia Directa:",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-            text_color=COLOR_TEXT_PRIMARY, anchor="w"
-        ).pack(fill="x")
+            ctk.CTkLabel(
+                cbu_info, text="💳 Mercado Pago / Transferencia Directa:",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+                text_color=COLOR_TEXT_PRIMARY, anchor="w"
+            ).pack(fill="x")
 
-        mp_email = "cgonzalez7060@gmail.com"
-        lbl_alias = ctk.CTkLabel(
-            cbu_info, text=f"Cuenta MP / Email: {mp_email}",
-            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
-            text_color="#facc15", anchor="w"
-        )
-        lbl_alias.pack(fill="x", pady=(2, 0))
+            lbl_alias = ctk.CTkLabel(
+                cbu_info, text=f"Cuenta MP / Email: {mp_email}",
+                font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+                text_color="#facc15", anchor="w"
+            )
+            lbl_alias.pack(fill="x", pady=(2, 0))
 
-        def copy_alias_action():
-            try:
-                self.clipboard_clear()
-                self.clipboard_append(mp_email)
-                btn_copy_alias.configure(text="¡Copiado! ✓", fg_color=COLOR_SUCCESS)
-                modal.after(2000, lambda: btn_copy_alias.configure(text="Copiar Email / MP", fg_color=COLOR_SIDEBAR))
-            except Exception:
-                pass
+            def copy_alias_action():
+                try:
+                    self.clipboard_clear()
+                    self.clipboard_append(mp_email)
+                    btn_copy_alias.configure(text="¡Copiado! ✓", fg_color=COLOR_SUCCESS)
+                    modal.after(2000, lambda: btn_copy_alias.configure(text="Copiar Email / MP", fg_color=COLOR_SIDEBAR))
+                except Exception:
+                    pass
 
-        btn_copy_alias = ctk.CTkButton(
-            cbu_card, text="Copiar Email / MP", width=120, height=30,
-            fg_color=COLOR_SIDEBAR, hover_color=COLOR_CARD_HOVER,
-            text_color=COLOR_TEXT_PRIMARY, font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
-            command=copy_alias_action
-        )
-        btn_copy_alias.pack(side="right", padx=12, pady=10)
+            btn_copy_alias = ctk.CTkButton(
+                cbu_card, text="Copiar Email / MP", width=120, height=30,
+                fg_color=COLOR_SIDEBAR, hover_color=COLOR_CARD_HOVER,
+                text_color=COLOR_TEXT_PRIMARY, font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold"),
+                command=copy_alias_action
+            )
+            btn_copy_alias.pack(side="right", padx=12, pady=10)
 
         # 4. GitHub Star Button
         github_frame = ctk.CTkFrame(content_box, fg_color="transparent")
@@ -854,27 +943,65 @@ class CleanerWindow(ctk.CTk):
         self._show_modal_alert("Análisis de Residuos", "¡Análisis Completado!", f"Se detectaron aproximadamente {total_mb} MB de espacio recuperable en {total_f} archivos.", icon="🔍", status_type="info")
 
     def start_clean_thread(self):
-        if not messagebox.askyesno("Confirmar", "¿Eliminar los temporales detectados?"):
-            return
-        self.set_status("⏳", "Ejecutando purga de archivos temporales...", busy=True)
-        threading.Thread(target=self._run_clean, daemon=True).start()
+        # Los widgets se leen en el hilo principal, nunca desde el hilo de trabajo
+        dry_run = self.chk_dry_run.get() == 1
+        vaciar_papelera = self.chk_recycle.get() == 1
 
-    def _run_clean(self):
+        if dry_run:
+            messagebox.showinfo(
+                "Modo simulación",
+                "Se mostrará en el registro qué se borraría, sin eliminar ningún archivo.",
+            )
+        elif not messagebox.askyesno("Confirmar", "¿Eliminar los temporales detectados?"):
+            return
+
+        self.set_status(
+            "⏳",
+            "Simulando purga de temporales..." if dry_run else "Ejecutando purga de archivos temporales...",
+            busy=True,
+        )
+        threading.Thread(
+            target=self._run_clean, args=(vaciar_papelera, dry_run), daemon=True
+        ).start()
+
+    def _run_clean(self, vaciar_papelera=False, dry_run=False):
         self.log("\n=== LIMPIANDO ARCHIVOS TEMPORALES ===")
+        if dry_run:
+            self.log("[i] MODO SIMULACIÓN: no se eliminará ningún archivo.")
+
         targets = get_target_directories()
         liberados_b, liberados_f = 0, 0
         for label, path in targets.items():
-            self.log(f"[>] Purgando {label}...")
-            b, count = clean_directory(path, log_callback=self.log)
+            self.log(f"[>] {'Simulando' if dry_run else 'Purgando'} {label}...")
+            b, count = clean_directory(path, log_callback=self.log, dry_run=dry_run)
             liberados_b += b
             liberados_f += count
 
-        # Si el usuario dejó tildada la papelera en el Dashboard, vaciarla también
-        if hasattr(self, 'chk_recycle') and self.chk_recycle.get() == 1:
+        # La papelera solo se vacía en modo real y si el usuario lo marcó
+        if vaciar_papelera and not dry_run:
             empty_recycle_bin()
             self.log("[✓] Papelera de reciclaje vaciada en el proceso.")
 
         total_mb = round(liberados_b / (1024 * 1024), 2)
+
+        if dry_run:
+            self.log(f"[i] Simulación finalizada: se liberarían ~{total_mb} MB ({liberados_f} archivos).")
+            self.set_status(
+                "🟢",
+                f"Simulación completada: ~{total_mb} MB recuperables ({liberados_f} archivos).",
+                busy=False,
+                progress_val=1.0,
+            )
+            self._show_modal_alert(
+                "Modo Simulación",
+                "Simulación Completada",
+                f"Se liberarían aproximadamente {total_mb} MB en {liberados_f} archivos.\n\n"
+                "No se eliminó nada. Desmarca 'Modo simulación' para limpiar de verdad.",
+                icon="🧪",
+                status_type="info",
+            )
+            return
+
         self.log(f"[✓] Finalizado: {total_mb} MB liberados ({liberados_f} eliminados).")
 
         def _update_cards():
@@ -887,35 +1014,250 @@ class CleanerWindow(ctk.CTk):
         self._show_modal_alert("Limpieza de Temporales", "¡Limpieza Completada!", f"Se han eliminado con éxito {total_mb} MB de temporales ({liberados_f} archivos borrados).", icon="⚡", status_type="success")
 
     def start_full_sys_clean_thread(self):
-        if not messagebox.askyesno("Confirmar", "¿Ejecutar limpieza de Windows Update, navegadores y reportes de errores?"):
-            return
-        self.set_status("⏳", "Ejecutando limpieza de navegadores, Windows Update y logs...", busy=True)
-        threading.Thread(target=self._run_full_sys_clean, daemon=True).start()
+        dry_run = self.chk_dry_run.get() == 1
 
-    def _run_full_sys_clean(self):
+        if dry_run:
+            messagebox.showinfo(
+                "Modo simulación",
+                "Se calculará el espacio recuperable sin borrar nada ni cerrar aplicaciones.",
+            )
+        elif not messagebox.askyesno(
+            "Confirmar",
+            "¿Ejecutar limpieza de Windows Update, navegadores y reportes de errores?\n\n"
+            "Los navegadores abiertos recibirán una petición de cierre "
+            "(podrán guardar su sesión).",
+        ):
+            return
+
+        self.set_status(
+            "⏳",
+            "Simulando limpieza profunda..." if dry_run else "Ejecutando limpieza de navegadores, Windows Update y logs...",
+            busy=True,
+        )
+        threading.Thread(
+            target=self._run_full_sys_clean, args=(dry_run,), daemon=True
+        ).start()
+
+    def _run_full_sys_clean(self, dry_run=False):
         self.log("\n=== LIMPIEZA PROFUNDA DE SISTEMA & NAVEGADORES ===")
-        sys_cleaner.clean_browser_caches()
-        sys_cleaner.clean_windows_update()
-        purged = sys_cleaner.clean_logs_and_dumps()
-        sys_cleaner.clean_thumbnail_cache()
-        self.log(f"[✓] Mantenimiento profundo completado ({purged} registros/dumps eliminados).")
-        
-        self.set_status("🟢", f"Mantenimiento profundo completado: {purged} registros/dumps purgados.", busy=False, progress_val=1.0)
+        if dry_run:
+            self.log("[i] MODO SIMULACIÓN: no se borrará nada ni se cerrarán aplicaciones.")
+
+        total = 0
+
+        rutas, freed = sys_cleaner.clean_browser_caches(dry_run=dry_run, log_callback=self.log)
+        total += freed
+        self.log(f"[>] Navegadores: {len(rutas)} cachés ({round(freed / (1024 * 1024), 2)} MB)")
+
+        ok, freed = sys_cleaner.clean_windows_update(dry_run=dry_run, log_callback=self.log)
+        total += freed
+        self.log(f"[>] Windows Update: {'detectado' if ok else 'nada que purgar'} ({round(freed / (1024 * 1024), 2)} MB)")
+
+        purged, freed = sys_cleaner.clean_logs_and_dumps(dry_run=dry_run, log_callback=self.log)
+        total += freed
+        self.log(f"[>] Volcados/logs: {purged} elementos ({round(freed / (1024 * 1024), 2)} MB)")
+
+        thumbs, freed = sys_cleaner.clean_thumbnail_cache(dry_run=dry_run, log_callback=self.log)
+        total += freed
+        self.log(f"[>] Miniaturas: {thumbs} archivos ({round(freed / (1024 * 1024), 2)} MB)")
+
+        total_mb = round(total / (1024 * 1024), 2)
+
+        if dry_run:
+            self.set_status(
+                "🟢",
+                f"Simulación completada: ~{total_mb} MB recuperables.",
+                busy=False,
+                progress_val=1.0,
+            )
+            self._show_modal_alert(
+                "Modo Simulación",
+                "Simulación Completada",
+                f"Se liberarían aproximadamente {total_mb} MB.\n\n"
+                "No se borró nada. Desmarca 'Modo simulación' para ejecutar la limpieza real.",
+                icon="🧪",
+                status_type="info",
+            )
+            return
+
+        self.set_status(
+            "🟢",
+            f"Mantenimiento profundo completado: {total_mb} MB liberados.",
+            busy=False,
+            progress_val=1.0,
+        )
         self._refresh_system_metrics()
-        self._show_modal_alert("Mantenimiento de Sistema", "¡Mantenimiento Completado!", f"Se purgaron las cachés de navegadores, instalaciones viejas de Windows Update y {purged} archivos de volcados/logs.", icon="🌐", status_type="success")
+        self._show_modal_alert(
+            "Mantenimiento de Sistema",
+            "¡Mantenimiento Completado!",
+            f"Se liberaron aproximadamente {total_mb} MB entre cachés de navegadores, "
+            f"Windows Update, volcados y miniaturas.",
+            icon="🌐",
+            status_type="success",
+        )
 
     def start_gaming_mode_thread(self):
-        self.set_status("⏳", "Optimizando memoria RAM y cerrando procesos no esenciales...", busy=True)
-        threading.Thread(target=self._run_gaming_mode, daemon=True).start()
+        """Abre un selector: el usuario decide qué apps cerrar (nada por defecto)."""
+        candidates = opt.list_running_candidates()
 
-    def _run_gaming_mode(self):
+        if not candidates:
+            self._show_modal_alert(
+                "Modo Gaming",
+                "Nada que cerrar",
+                "No hay aplicaciones de la lista abiertas en este momento.",
+                icon="🎮",
+                status_type="info",
+            )
+            return
+
+        modal = ctk.CTkToplevel(self)
+        modal.title("Modo Rendimiento (Gaming)")
+        modal.geometry("520x480")
+        modal.resizable(False, False)
+        modal.configure(fg_color=COLOR_BG_DARK)
+        modal.transient(self)
+        modal.grab_set()
+
+        try:
+            self.update_idletasks()
+            x = self.winfo_x() + (self.winfo_width() // 2) - 260
+            y = self.winfo_y() + (self.winfo_height() // 2) - 240
+            modal.geometry(f"520x480+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        ctk.CTkLabel(
+            modal,
+            text="🎮 Modo Rendimiento",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            text_color=COLOR_ACCENT,
+        ).pack(anchor="w", padx=22, pady=(18, 4))
+
+        ctk.CTkLabel(
+            modal,
+            text="Se pedirá a las aplicaciones marcadas que se cierren. "
+                 "Guarda tu trabajo antes de continuar: podrías perder cambios sin guardar.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_DANGER,
+            anchor="w",
+            justify="left",
+            wraplength=470,
+        ).pack(fill="x", padx=22, pady=(0, 10))
+
+        list_box = ctk.CTkScrollableFrame(modal, fg_color=COLOR_CARD, corner_radius=10)
+        list_box.pack(fill="both", expand=True, padx=22, pady=(0, 10))
+
+        selections = []
+        for candidate in candidates:
+            var = tk.BooleanVar(value=False)
+            chk = ctk.CTkCheckBox(
+                list_box,
+                text=f"{candidate['label']}  ({len(candidate['pids'])} proceso/s)",
+                variable=var,
+                font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                text_color=COLOR_TEXT_PRIMARY,
+            )
+            chk.pack(anchor="w", padx=14, pady=6)
+            selections.append((candidate, var))
+
+        force_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(
+            list_box,
+            text="Forzar cierre si no responde (puede perder datos)",
+            variable=force_var,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_WARNING,
+        ).pack(anchor="w", padx=14, pady=(10, 6))
+
+        lbl_status = ctk.CTkLabel(
+            modal, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11, weight="bold")
+        )
+        lbl_status.pack(anchor="w", padx=22, pady=(0, 4))
+
+        btn_box = ctk.CTkFrame(modal, fg_color="transparent")
+        btn_box.pack(fill="x", padx=22, pady=(0, 16))
+
+        def _activate():
+            selected = [c["name"] for c, var in selections if var.get()]
+            labels = [c["label"] for c, var in selections if var.get()]
+
+            if not selected:
+                lbl_status.configure(
+                    text="⚠️ Marca al menos una aplicación.", text_color=COLOR_DANGER
+                )
+                return
+
+            if not messagebox.askyesno(
+                "Confirmar cierre",
+                "Se cerrarán:\n\n• " + "\n• ".join(labels) +
+                "\n\nGuarda tu trabajo antes de continuar. ¿Continuar?",
+            ):
+                return
+
+            modal.destroy()
+            self.set_status("⏳", "Cerrando aplicaciones seleccionadas...", busy=True)
+            threading.Thread(
+                target=self._run_gaming_mode,
+                args=(selected, force_var.get()),
+                daemon=True,
+            ).start()
+
+        ctk.CTkButton(
+            btn_box,
+            text="Activar",
+            width=120,
+            height=32,
+            fg_color=COLOR_SUCCESS,
+            hover_color=COLOR_SUCCESS_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=_activate,
+        ).pack(side="right", padx=(8, 0))
+
+        ctk.CTkButton(
+            btn_box,
+            text="Cancelar",
+            width=100,
+            height=32,
+            fg_color=COLOR_CARD_HOVER,
+            hover_color="#323744",
+            text_color=COLOR_TEXT_PRIMARY,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            command=modal.destroy,
+        ).pack(side="right")
+
+    def _run_gaming_mode(self, process_names, force=False):
         self.log("\n=== MODO RENDIMIENTO (GAMING) ===")
-        killed = opt.activate_game_mode()
-        self.log(f"[+] Procesos no esenciales finalizados: {killed}. Portapapeles purgado.")
-        
-        self.set_status("🟢", f"Modo Gaming activo: {killed} procesos finalizados.", busy=False, progress_val=1.0)
+        self.log("[*] Cierre amable de las apps seleccionadas (pueden guardar su sesión)...")
+
+        result = opt.activate_game_mode(
+            process_names, force=force, log_callback=self.log
+        )
+        closed = result["closed"]
+        failed = result["failed"]
+
+        if failed:
+            self.log(f"[!] {len(failed)} proceso/s no se cerraron (siguen abiertos).")
+            detalle = (
+                f"Se cerraron {len(closed)} proceso/s. "
+                f"{len(failed)} no respondieron y siguen abiertos."
+            )
+            icon, status_type = "⚠️", "warning"
+        else:
+            self.log("[✓] Todas las apps seleccionadas se cerraron correctamente.")
+            detalle = f"Se cerraron {len(closed)} proceso/s seleccionados."
+            icon, status_type = "🎮", "success"
+
+        self.set_status(
+            "🟢", f"Modo Gaming: {detalle}", busy=False, progress_val=1.0
+        )
         self._refresh_system_metrics()
-        self._show_modal_alert("Modo Gaming", "¡Modo Rendimiento Activado!", f"Se finalizaron {killed} procesos secundarios en segundo plano y se liberó el portapapeles de Windows.", icon="🎮", status_type="success")
+        self._show_modal_alert(
+            "Modo Gaming",
+            "Modo Rendimiento Activado",
+            f"{detalle}\n\nEl portapapeles también fue purgado.",
+            icon=icon,
+            status_type=status_type,
+        )
 
     def start_sfc_thread(self):
         if not messagebox.askyesno("Confirmar", "El análisis SFC comprobará e integrará archivos dañados de Windows. ¿Iniciar?"):

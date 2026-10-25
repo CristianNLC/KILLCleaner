@@ -1,9 +1,11 @@
 build/
 dist/
 dist_installer/
-*.spec
 __pycache__/
 *.pyc
 venv/
 .env
 data/config.json
+logs/
+# Credenciales locales: nunca se versionan
+secrets.json
