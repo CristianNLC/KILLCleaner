@@ -10,10 +10,14 @@ tmp_ret = collect_all('customtkinter')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 # Credenciales locales: se empaquetan SOLO si existen y nunca se versionan.
-# Copia data/secrets.example.json a secrets.json antes de compilar si las necesitas.
-_secrets = os.path.join(SPECPATH, 'secrets.json')
-if os.path.exists(_secrets):
-    datas += [(_secrets, '.')]
+# Se acepta secrets.json en la raíz o en data/ (el primero que exista).
+for _secrets in (
+    os.path.join(SPECPATH, 'secrets.json'),
+    os.path.join(SPECPATH, 'data', 'secrets.json'),
+):
+    if os.path.exists(_secrets):
+        datas += [(_secrets, '.')]
+        break
 
 
 a = Analysis(

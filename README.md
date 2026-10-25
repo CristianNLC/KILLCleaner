@@ -69,11 +69,13 @@ Sin clave, el formulario de contacto aparece desactivado y el bloque de Mercado
 Pago se oculta; el resto de la aplicación funciona igual. `secrets.json` está en
 `.gitignore`.
 
-Para incluirlas en el `.exe`, copia `secrets.json` a la **raíz del proyecto**
-antes de ejecutar PyInstaller: el `.spec` solo lo empaqueta si existe.
+Para incluirlas en el `.exe`, deja `secrets.json` en la **raíz del proyecto** o en
+`data/` antes de ejecutar PyInstaller: el `.spec` empaqueta el primero que exista.
 
-> ⚠️ Cualquier clave que viaje dentro de un `.exe` es extraíble. No la uses para
-> nada sensible y rótala si sospechas que se filtró.
+> ℹ️ La *access key* de Web3Forms **no es un secreto**: identifica tu formulario y
+> solo sirve para enviarte correos. Web3Forms la describe como «un alias de tu
+> email». Aun así, cualquiera puede extraerla de un `.exe`, así que no la uses
+> para nada más sensible y apóyate en el filtro antispam del servicio.
 
 ---
 
