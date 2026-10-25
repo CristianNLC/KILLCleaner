@@ -13,10 +13,12 @@ def calculate_sha256(filepath: str) -> str:
             sha.update(chunk)
     return sha.hexdigest()
 
-def find_duplicate_files(target_dir: str, min_size_bytes: int = 1024, log_callback=None):
+def find_duplicate_files(target_dir: str, min_size_bytes: int = 1024, log_callback=None, cancel_event=None):
     """
     Escanea el directorio objetivo buscando archivos duplicados por hash.
     Retorna un diccionario: {sha256: [lista_de_rutas_duplicadas]}
+
+    Si ``cancel_event`` se activa, detiene el trabajo y devuelve ``{}``.
     """
     if not os.path.isdir(target_dir):
         return {}
@@ -29,7 +31,11 @@ def find_duplicate_files(target_dir: str, min_size_bytes: int = 1024, log_callba
     total_files = 0
 
     for root, _, files in os.walk(target_dir):
+        if cancel_event is not None and cancel_event.is_set():
+            return {}
         for f in files:
+            if cancel_event is not None and cancel_event.is_set():
+                return {}
             fp = os.path.join(root, f)
             try:
                 sz = os.path.getsize(fp)
@@ -49,6 +55,8 @@ def find_duplicate_files(target_dir: str, min_size_bytes: int = 1024, log_callba
     hash_map = defaultdict(list)
     for sz, paths in potential_candidates.items():
         for path in paths:
+            if cancel_event is not None and cancel_event.is_set():
+                return {}
             try:
                 file_hash = calculate_sha256(path)
                 hash_map[file_hash].append(path)

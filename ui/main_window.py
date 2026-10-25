@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import threading
 import psutil
@@ -9,6 +10,7 @@ import customtkinter as ctk
 from tkinter import messagebox, filedialog
 
 from ui.theme import *
+from core.app_paths import system_drive
 from core.privileges import is_admin, relaunch_as_admin
 from core.secrets import get_donation_email, get_feedback_key
 from core.cleaner import get_target_directories, scan_target, clean_directory, empty_recycle_bin
@@ -55,21 +57,57 @@ class CleanerWindow(ctk.CTk):
         ctk.set_default_color_theme("blue")
 
         self.title("KILLCleaner - Centro de Optimización")
-        
-        # Centrado automático en la pantalla del usuario
-        app_width = 1040
-        app_height = 700
-        screen_width = self.winfo_screenwidth()
-        screen_height = self.winfo_screenheight()
-        x = int((screen_width - app_width) / 2)
-        y = int((screen_height - app_height) / 2)
-        self.geometry(f"{app_width}x{app_height}+{max(0, x)}+{max(0, y)}")
+
         self.minsize(940, 620)
+        self._restore_window_geometry()
         self.configure(fg_color=COLOR_BG_DARK)
 
         self.console_visible = False
+        self._cancel_event = threading.Event()
         self._build_layout()
         self._refresh_system_metrics()
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+    def _restore_window_geometry(self):
+        """Restaura tamaño/posición guardados, validando que sigan en pantalla."""
+        saved = app_config.get_value("window_geometry")
+        if isinstance(saved, str):
+            match = re.fullmatch(r"(\d+)x(\d+)([+-]\d+)([+-]\d+)", saved.strip())
+            if match:
+                width, height, x, y = (int(value) for value in match.groups())
+                screen_w = max(self.winfo_screenwidth(), self.winfo_vrootwidth())
+                screen_h = max(self.winfo_screenheight(), self.winfo_vrootheight())
+                visible = (
+                    width >= 940
+                    and height >= 620
+                    and 0 <= x <= screen_w - 120
+                    and 0 <= y <= screen_h - 120
+                )
+                if visible:
+                    self.geometry(f"{width}x{height}+{x}+{y}")
+                    if app_config.get_value("window_maximized", False):
+                        self.after(100, lambda: self.state("zoomed"))
+                    return
+
+        app_width, app_height = 1040, 700
+        x = int((self.winfo_screenwidth() - app_width) / 2)
+        y = int((self.winfo_screenheight() - app_height) / 2)
+        self.geometry(f"{app_width}x{app_height}+{max(0, x)}+{max(0, y)}")
+
+    def _save_window_geometry(self):
+        """Guarda el tamaño y la posición actuales para el próximo arranque."""
+        try:
+            self.update_idletasks()
+            zoomed = self.state() == "zoomed"
+            if not zoomed:
+                app_config.set_value("window_geometry", self.geometry())
+            app_config.set_value("window_maximized", zoomed)
+        except Exception:
+            pass
+
+    def _on_close(self):
+        self._save_window_geometry()
+        self.destroy()
 
     def _build_layout(self):
         # 1. BARRA LATERAL (SIDEBAR)
@@ -150,7 +188,7 @@ class CleanerWindow(ctk.CTk):
         self.stats_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
         self.stats_frame.pack(fill="x", pady=(0, 10))
 
-        self.card_disk = self._create_stat_card(self.stats_frame, "🖴 DISCO C:", "Calculando...", "Espacio libre")
+        self.card_disk = self._create_stat_card(self.stats_frame, f"🖴 DISCO {system_drive()}", "Calculando...", "Espacio libre")
         self.card_ram = self._create_stat_card(self.stats_frame, "⚡ MEMORIA RAM", "Calculando...", "En uso")
         self.card_trash = self._create_stat_card(self.stats_frame, "🗑️ RESIDUOS ESTIMADOS", "-- MB", "Pendientes de purga")
 
@@ -326,7 +364,7 @@ class CleanerWindow(ctk.CTk):
             return
 
         if relaunch_as_admin():
-            self.destroy()
+            self._on_close()
         else:
             messagebox.showerror(
                 "Permisos",
@@ -382,6 +420,14 @@ class CleanerWindow(ctk.CTk):
         self.btn_quick_clean = ctk.CTkButton(btn_box, text="⚡ Limpiar Temporales", fg_color=COLOR_DANGER, hover_color="#dc2626", width=160, height=32, font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"), command=self.start_clean_thread)
         self.btn_quick_clean.pack(side="left")
 
+        self.btn_cancel_task = ctk.CTkButton(
+            btn_box, text="✖ Cancelar", fg_color=COLOR_SIDEBAR, hover_color=COLOR_CARD_HOVER,
+            text_color=COLOR_TEXT_PRIMARY, width=110, height=32,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            state="disabled", command=self.cancel_current_task,
+        )
+        self.btn_cancel_task.pack(side="left", padx=(10, 0))
+
         # PANEL COMPLEMENTARIO
         dash_grid = ctk.CTkFrame(self.tab_dash, fg_color="transparent")
         dash_grid.pack(fill="both", expand=True, pady=4)
@@ -412,7 +458,7 @@ class CleanerWindow(ctk.CTk):
 
         ctk.CTkLabel(options_card, text="⚙️ Áreas de Purga Incluidas", font=ctk.CTkFont(family=FONT_FAMILY, size=13, weight="bold"), text_color=COLOR_TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(10, 8))
 
-        self.chk_temp = ctk.CTkCheckBox(options_card, text="Archivos temporales (%TEMP%)", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLOR_TEXT_PRIMARY)
+        self.chk_temp = ctk.CTkCheckBox(options_card, text="Archivos temporales (usuario y Windows)", font=ctk.CTkFont(family=FONT_FAMILY, size=12), text_color=COLOR_TEXT_PRIMARY)
         self.chk_temp.pack(anchor="w", padx=16, pady=3)
         self.chk_temp.select()
 
@@ -450,7 +496,7 @@ class CleanerWindow(ctk.CTk):
         self.tab_maint = ctk.CTkScrollableFrame(self.views_container, fg_color="transparent")
 
         self._create_action_row(self.tab_maint, "🛡️ Punto de Restauración del Sistema", "Crea una instantánea del estado de Windows para volver atrás ante cualquier imprevisto.", "Crear", COLOR_SUCCESS, self.start_restore_point_thread, accent_bar=COLOR_SUCCESS)
-        self._create_action_row(self.tab_maint, "⚡ Optimización / TRIM de Disco", "Ejecuta comandos de re-trim en SSD y optimización de sectores en el disco C:.", "Optimizar", COLOR_AMBER, self.start_trim_thread, accent_bar=COLOR_AMBER)
+        self._create_action_row(self.tab_maint, "⚡ Optimización / TRIM de Disco", "Ejecuta comandos de re-trim en SSD y optimización de sectores en la unidad del sistema.", "Optimizar", COLOR_AMBER, self.start_trim_thread, accent_bar=COLOR_AMBER)
         self._create_action_row(self.tab_maint, "🌐 Limpieza de Sistema & Navegadores", "Purga cachés de navegadores, descargas de Windows Update y logs de fallo.", "Limpiar", COLOR_BLUE, self.start_full_sys_clean_thread, accent_bar=COLOR_BLUE)
         self._create_action_row(self.tab_maint, "🗑️ Vaciar Papelera de Reciclaje", "Elimina de forma irreversible todos los archivos reciclados.", "Vaciar", COLOR_DANGER, self.clean_recycle_bin_action, accent_bar=COLOR_DANGER)
         self._create_action_row(self.tab_maint, "📶 Caché de Red y Servidores DNS", "Restablece la pila TCP/IP y vacía el resolver de nombres de dominio.", "Purgar", COLOR_CYAN, self.flush_network_action, accent_bar=COLOR_CYAN)
@@ -534,6 +580,8 @@ class CleanerWindow(ctk.CTk):
 
         guide = [
             ("⚡ Limpieza Básica & Temporales", "Elimina los archivos en %TEMP% y Prefetch acumulados por programas cerrados. Seguro para el uso diario sin riesgo para tus documentos."),
+            ("⚙️ Áreas de Purga", "Las casillas del Resumen deciden exactamente qué se analiza y se limpia: temporales de usuario/Windows y Prefetch. Si lo desmarcas todo, la app no toca nada."),
+            ("✖ Cancelar Operación", "Durante el análisis o la limpieza puedes detener el proceso con el botón Cancelar. Lo ya borrado se conserva y la Papelera no se vacía."),
             ("🌐 Sistema & Navegadores", "Borra historiales residuales de navegación y las carpetas de instalación que deja Windows Update luego de actualizarse."),
             ("🗑️ Vaciar Papelera de Reciclaje", "Purga de forma definitiva los elementos descartados de todas las unidades del equipo."),
             ("📶 Caché de Red & DNS", "Limpia la tabla de resolución DNS local y reestablece los sockets de Windows; útil si alguna página web falla en cargar."),
@@ -844,14 +892,47 @@ class CleanerWindow(ctk.CTk):
             self.tab_tools.pack(fill="both", expand=True)
             self.btn_nav_tools.configure(fg_color=COLOR_CARD, text_color=COLOR_ACCENT)
 
+    def _selected_targets(self):
+        """Rutas de limpieza habilitadas en las casillas de 'Áreas de Purga'."""
+        targets = get_target_directories()
+        include_temp = self.chk_temp.get() == 1
+        include_prefetch = self.chk_prefetch.get() == 1
+
+        selected = {}
+        for label, path in targets.items():
+            if label == "Caché Prefetch":
+                if include_prefetch:
+                    selected[label] = path
+            elif include_temp:
+                selected[label] = path
+        return selected
+
+    def _set_task_running(self, running):
+        """Bloquea las acciones largas y habilita el botón Cancelar."""
+        def _update():
+            state = "disabled" if running else "normal"
+            self.btn_quick_scan.configure(state=state)
+            self.btn_quick_clean.configure(state=state)
+            self.btn_cancel_task.configure(state="normal" if running else "disabled")
+        self.after(0, _update)
+
+    def cancel_current_task(self):
+        """Solicita detener el análisis o la limpieza en curso."""
+        if self._cancel_event.is_set():
+            return
+        self._cancel_event.set()
+        self.btn_cancel_task.configure(state="disabled")
+        self.set_status("⏳", "Cancelando la operación...", busy=True)
+
     def _refresh_system_metrics(self):
         def _do_refresh():
             try:
-                total, used, free = shutil.disk_usage("C:\\")
+                drive = system_drive()
+                total, used, free = shutil.disk_usage(drive + os.sep)
                 free_gb = round(free / (1024**3), 1)
                 total_gb = round(total / (1024**3), 1)
                 self.card_disk["val"].configure(text=f"{free_gb} GB Libres")
-                self.card_disk["sub"].configure(text=f"de {total_gb} GB totales")
+                self.card_disk["sub"].configure(text=f"de {total_gb} GB totales ({drive})")
 
                 ram = psutil.virtual_memory()
                 self.card_ram["val"].configure(text=f"{ram.percent}%")
@@ -911,21 +992,60 @@ class CleanerWindow(ctk.CTk):
         threading.Thread(target=_task, daemon=True).start()
 
     def start_analysis_thread(self):
-        self.set_status("⏳", "Analizando residuos acumulados en el sistema...", busy=True)
-        threading.Thread(target=self._run_analysis, daemon=True).start()
+        targets = self._selected_targets()
+        if not targets:
+            messagebox.showwarning(
+                "Sin áreas seleccionadas",
+                "Marca al menos un área de purga antes de analizar.",
+            )
+            return
 
-    def _run_analysis(self):
+        self._cancel_event.clear()
+        self._set_task_running(True)
+        self.set_status("⏳", "Analizando residuos acumulados en el sistema...", busy=True)
+
+        def _worker():
+            try:
+                self._run_analysis(targets, self._cancel_event)
+            finally:
+                self._set_task_running(False)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _run_analysis(self, targets=None, cancel_event=None):
         self.log("\n--- ANÁLISIS DE RESIDUOS BÁSICOS ---")
-        targets = get_target_directories()
+        targets = targets if targets is not None else self._selected_targets()
+        cancel_event = cancel_event or threading.Event()
+
         total_b, total_f = 0, 0
+        cancelled = False
         for label, path in targets.items():
-            b, count = scan_target(path)
+            if cancel_event.is_set():
+                cancelled = True
+                break
+            b, count = scan_target(path, cancel_event=cancel_event)
             total_b += b
             total_f += count
             self.log(f"[*] {label}: {count} archivos ({round(b / (1024 * 1024), 2)} MB)")
+
         total_mb = round(total_b / (1024 * 1024), 2)
+
+        if cancelled:
+            self.log(f"[!] Análisis cancelado tras revisar ~{total_mb} MB.")
+            self.set_status(
+                "⚠️", f"Análisis cancelado (~{total_mb} MB revisados).",
+                busy=False, progress_val=0,
+            )
+            self._show_modal_alert(
+                "Análisis de Residuos", "Análisis Cancelado",
+                f"Se detuvo el análisis tras revisar aproximadamente {total_mb} MB "
+                f"en {total_f} archivos.\n\nNo se eliminó nada.",
+                icon="⚠️", status_type="warning",
+            )
+            return
+
         self.log(f"[>] Total recuperable: {total_mb} MB en {total_f} archivos.")
-        
+
         def _update_cards():
             self.card_trash["val"].configure(text=f"~{total_mb} MB")
             self.card_trash["sub"].configure(text=f"{total_f} archivos detectados")
@@ -935,6 +1055,14 @@ class CleanerWindow(ctk.CTk):
         self._show_modal_alert("Análisis de Residuos", "¡Análisis Completado!", f"Se detectaron aproximadamente {total_mb} MB de espacio recuperable en {total_f} archivos.", icon="🔍", status_type="info")
 
     def start_clean_thread(self):
+        targets = self._selected_targets()
+        if not targets:
+            messagebox.showwarning(
+                "Sin áreas seleccionadas",
+                "Marca al menos un área de purga antes de limpiar.",
+            )
+            return
+
         # Los widgets se leen en el hilo principal, nunca desde el hilo de trabajo
         dry_run = self.chk_dry_run.get() == 1
         vaciar_papelera = self.chk_recycle.get() == 1
@@ -947,25 +1075,40 @@ class CleanerWindow(ctk.CTk):
         elif not messagebox.askyesno("Confirmar", "¿Eliminar los temporales detectados?"):
             return
 
+        self._cancel_event.clear()
+        self._set_task_running(True)
         self.set_status(
             "⏳",
             "Simulando purga de temporales..." if dry_run else "Ejecutando purga de archivos temporales...",
             busy=True,
         )
-        threading.Thread(
-            target=self._run_clean, args=(vaciar_papelera, dry_run), daemon=True
-        ).start()
 
-    def _run_clean(self, vaciar_papelera=False, dry_run=False):
+        def _worker():
+            try:
+                self._run_clean(targets, vaciar_papelera, dry_run, self._cancel_event)
+            finally:
+                self._set_task_running(False)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _run_clean(self, targets=None, vaciar_papelera=False, dry_run=False, cancel_event=None):
         self.log("\n=== LIMPIANDO ARCHIVOS TEMPORALES ===")
         if dry_run:
             self.log("[i] MODO SIMULACIÓN: no se eliminará ningún archivo.")
 
-        targets = get_target_directories()
+        targets = targets if targets is not None else self._selected_targets()
+        cancel_event = cancel_event or threading.Event()
+
         liberados_b, liberados_f = 0, 0
+        cancelled = False
         for label, path in targets.items():
+            if cancel_event.is_set():
+                cancelled = True
+                break
             self.log(f"[>] {'Simulando' if dry_run else 'Purgando'} {label}...")
-            b, count = clean_directory(path, log_callback=self.log, dry_run=dry_run)
+            b, count = clean_directory(
+                path, log_callback=self.log, dry_run=dry_run, cancel_event=cancel_event
+            )
             liberados_b += b
             liberados_f += count
             audit.log_action(
@@ -977,12 +1120,34 @@ class CleanerWindow(ctk.CTk):
                 details={"label": label},
             )
 
+        total_mb = round(liberados_b / (1024 * 1024), 2)
+
+        if cancelled:
+            audit.log_action(
+                "clean_temp_cancelled",
+                target="temporales",
+                bytes_freed=liberados_b,
+                files=liberados_f,
+                dry_run=dry_run,
+            )
+            self.log(f"[!] Limpieza cancelada: {total_mb} MB liberados antes de detenerse.")
+            self.set_status(
+                "⚠️", f"Limpieza cancelada: {total_mb} MB liberados.",
+                busy=False, progress_val=0,
+            )
+            self._refresh_system_metrics()
+            self._show_modal_alert(
+                "Limpieza de Temporales", "Limpieza Cancelada",
+                f"Se detuvo la limpieza con {total_mb} MB liberados en "
+                f"{liberados_f} archivos.\n\nLa Papelera no se vació.",
+                icon="⚠️", status_type="warning",
+            )
+            return
+
         # La papelera solo se vacía en modo real y si el usuario lo marcó
         if vaciar_papelera and not dry_run:
             empty_recycle_bin()
             self.log("[✓] Papelera de reciclaje vaciada en el proceso.")
-
-        total_mb = round(liberados_b / (1024 * 1024), 2)
 
         if dry_run:
             self.log(f"[i] Simulación finalizada: se liberarían ~{total_mb} MB ({liberados_f} archivos).")
@@ -1370,18 +1535,20 @@ class CleanerWindow(ctk.CTk):
             self._show_modal_alert("Punto de Restauración", "Atención", f"No se pudo crear el punto de restauración: {msg}", icon="⚠️", status_type="warning")
 
     def start_trim_thread(self):
-        if not messagebox.askyesno("Confirmar", "¿Ejecutar optimización TRIM sobre la unidad principal C:?"):
+        drive = system_drive()
+        if not messagebox.askyesno("Confirmar", f"¿Ejecutar optimización TRIM sobre la unidad del sistema {drive}?"):
             return
-        self.set_status("⏳", "Ejecutando optimización TRIM en el disco C:...", busy=True)
-        threading.Thread(target=self._run_trim, daemon=True).start()
+        self.set_status("⏳", f"Ejecutando optimización TRIM en {drive}...", busy=True)
+        threading.Thread(target=self._run_trim, args=(drive,), daemon=True).start()
 
-    def _run_trim(self):
+    def _run_trim(self, drive=None):
+        drive = drive or system_drive()
         self.log("\n=== OPTIMIZACIÓN TRIM DE DISCO ===")
-        success, msg = opt.optimize_drive_trim("C:")
+        success, msg = opt.optimize_drive_trim(drive)
         if success:
             self.log(f"[✓] {msg}")
             self.set_status("🟢", "Optimización TRIM finalizada con éxito.", busy=False, progress_val=1.0)
-            self._show_modal_alert("Optimización TRIM", "¡Optimización Completada!", "Se ejecutó la optimización TRIM sobre la unidad de almacenamiento principal C:.", icon="⚡", status_type="success")
+            self._show_modal_alert("Optimización TRIM", "¡Optimización Completada!", f"Se ejecutó la optimización TRIM sobre la unidad del sistema {drive}.", icon="⚡", status_type="success")
         else:
             self.log(f"[x] {msg}")
             self.set_status("⚠️", "No se pudo optimizar el disco.", busy=False, progress_val=1.0)

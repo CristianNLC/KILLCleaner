@@ -154,11 +154,16 @@ def _is_excluded(path, exclusions):
     return any(_is_within(path, excluded) for excluded in exclusions)
 
 
-def scan_target(path, exclusions=None):
+def _cancelled(cancel_event):
+    return cancel_event is not None and cancel_event.is_set()
+
+
+def scan_target(path, exclusions=None, cancel_event=None):
     """Calcula el peso total en bytes y cantidad de elementos a limpiar.
 
     Respeta las exclusiones configuradas para que el tamaño anunciado coincida
-    con lo que realmente se va a limpiar.
+    con lo que realmente se va a limpiar. ``cancel_event`` permite detener el
+    recorrido entre archivos.
     """
     if exclusions is None:
         exclusions = get_exclusions()
@@ -168,8 +173,12 @@ def scan_target(path, exclusions=None):
     total_bytes = 0
     file_count = 0
     for root, dirs, files in os.walk(path, topdown=True):
+        if _cancelled(cancel_event):
+            break
         dirs[:] = [d for d in dirs if not _is_excluded(os.path.join(root, d), exclusions)]
         for f in files:
+            if _cancelled(cancel_event):
+                break
             fp = os.path.join(root, f)
             try:
                 total_bytes += os.path.getsize(fp)
@@ -179,7 +188,7 @@ def scan_target(path, exclusions=None):
     return total_bytes, file_count
 
 
-def clean_directory(path, log_callback=None, dry_run=False, exclusions=None):
+def clean_directory(path, log_callback=None, dry_run=False, exclusions=None, cancel_event=None):
     """Elimina los archivos temporales omitiendo los que estén en uso.
 
     Args:
@@ -187,6 +196,7 @@ def clean_directory(path, log_callback=None, dry_run=False, exclusions=None):
         log_callback: Función opcional para reportar cada elemento.
         dry_run: Si es True no borra nada, solo informa qué se borraría.
         exclusions: Carpetas a respetar. Por defecto, las de ``config.json``.
+        cancel_event: ``threading.Event`` opcional para detener la limpieza.
 
     Returns:
         (bytes_afectados, archivos_afectados)
@@ -205,6 +215,8 @@ def clean_directory(path, log_callback=None, dry_run=False, exclusions=None):
     visited_dirs = []
 
     for root, dirs, files in os.walk(path, topdown=True):
+        if _cancelled(cancel_event):
+            break
         # Podar las carpetas excluidas antes de descender en ellas.
         allowed = []
         for d in dirs:
@@ -218,6 +230,8 @@ def clean_directory(path, log_callback=None, dry_run=False, exclusions=None):
         visited_dirs.append(root)
 
         for f in files:
+            if _cancelled(cancel_event):
+                break
             fp = os.path.join(root, f)
             try:
                 sz = os.path.getsize(fp)
@@ -231,7 +245,7 @@ def clean_directory(path, log_callback=None, dry_run=False, exclusions=None):
                 # Archivo en uso o sin permisos: se deja intacto
                 continue
 
-    if not dry_run:
+    if not dry_run and not _cancelled(cancel_event):
         # De más profunda a menos: las hijas deben quedar vacías antes que la madre.
         for dp in reversed(visited_dirs):
             if _norm(dp) == _norm(path):

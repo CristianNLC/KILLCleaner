@@ -17,8 +17,14 @@ class DuplicateFinderWindow(ctk.CTkToplevel):
         self.geometry("860x580")
         self.minsize(760, 480)
         self.configure(fg_color=COLOR_BG_DARK)
+        self._cancel_event = threading.Event()
 
         self._build_ui()
+
+    def destroy(self):
+        # Si se cierra la ventana a mitad de análisis, el hilo debe detenerse.
+        self._cancel_event.set()
+        super().destroy()
 
     def _build_ui(self):
         # Cabecera
@@ -39,6 +45,13 @@ class DuplicateFinderWindow(ctk.CTkToplevel):
         )
         self.btn_select.pack(side="right", padx=20, pady=15)
 
+        self.btn_cancel = ctk.CTkButton(
+            header, text="✖ Cancelar", width=100,
+            fg_color=COLOR_DANGER, hover_color=COLOR_DANGER_HOVER,
+            state="disabled", command=self._cancel_scan
+        )
+        self.btn_cancel.pack(side="right", padx=(0, 8), pady=15)
+
         # Barra de estado
         self.card_info = ctk.CTkFrame(self, fg_color=COLOR_CARD, corner_radius=8)
         self.card_info.pack(fill="x", padx=15, pady=10)
@@ -58,21 +71,53 @@ class DuplicateFinderWindow(ctk.CTkToplevel):
         if not folder:
             return
 
+        self._cancel_event.clear()
         self.btn_select.configure(state="disabled")
+        self.btn_cancel.configure(state="normal")
         self.lbl_status.configure(text=f"Analizando duplicados en: {folder} (Calculando hashes SHA-256)...")
 
         for w in self.scroll_list.winfo_children():
             w.destroy()
 
-        threading.Thread(target=self._run_scan_thread, args=(folder,), daemon=True).start()
+        threading.Thread(
+            target=self._run_scan_thread,
+            args=(folder, self._cancel_event),
+            daemon=True,
+        ).start()
 
-    def _run_scan_thread(self, folder):
-        duplicates = find_duplicate_files(folder)
-        self.after(0, self._render_duplicates, folder, duplicates)
+    def _cancel_scan(self):
+        if self._cancel_event.is_set():
+            return
+        self._cancel_event.set()
+        self.btn_cancel.configure(state="disabled")
+        self.lbl_status.configure(text="Cancelando el análisis...")
+
+    def _run_scan_thread(self, folder, cancel_event):
+        duplicates = find_duplicate_files(folder, cancel_event=cancel_event)
+        cancelled = cancel_event.is_set()
+        try:
+            self.after(0, self._finish_scan, folder, duplicates, cancelled)
+        except Exception:
+            pass
+
+    def _finish_scan(self, folder, duplicates, cancelled):
+        self.btn_select.configure(state="normal")
+        self.btn_cancel.configure(state="disabled")
+
+        if cancelled:
+            self.lbl_status.configure(text="Análisis cancelado por el usuario.")
+            for w in self.scroll_list.winfo_children():
+                w.destroy()
+            ctk.CTkLabel(
+                self.scroll_list,
+                text="Análisis cancelado. No se modificó ningún archivo.",
+                text_color=COLOR_TEXT_SECONDARY,
+            ).pack(pady=30)
+            return
+
+        self._render_duplicates(folder, duplicates)
 
     def _render_duplicates(self, folder, duplicates: dict):
-        self.btn_select.configure(state="normal")
-        
         if not duplicates:
             self.lbl_status.configure(text=f"No se encontraron archivos duplicados en: {folder}")
             lbl = ctk.CTkLabel(self.scroll_list, text="Directorio limpio: Sin duplicados detectados.", text_color=COLOR_TEXT_SECONDARY)

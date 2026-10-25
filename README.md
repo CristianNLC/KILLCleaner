@@ -15,10 +15,13 @@ con CustomTkinter; funciona 100 % en local y sin telemetría.
 - **Reparación de componentes:** `sfc /scannow` y DISM (`AnalyzeComponentStore`,
   `StartComponentCleanup`, `RestoreHealth`).
 - **Seguridad y restauración:** creación de puntos de restauración del sistema.
-- **Almacenamiento:** TRIM para SSD y optimización de HDD (`defrag /L /O`).
+- **Almacenamiento:** TRIM para SSD y optimización de HDD (`defrag /L /O`) sobre
+  la unidad donde está Windows, detectada automáticamente (no asume `C:`).
 - **Cachés de desarrollo:** `pip`, `npm`, `yarn`, Discord, Spotify y
   `__pycache__` recursivo.
 - **Modo Gaming:** cierre *selectivo* de aplicaciones y purga del portapapeles.
+- **Control de la limpieza:** casillas de áreas de purga, cancelación de
+  análisis/limpieza en curso y ventana que recuerda tamaño y posición.
 - **Auditoría:** estado SMART del disco, registro `logs/audit.jsonl` y
   exportación de informes `.txt`.
 
@@ -55,6 +58,8 @@ Estas son las garantías que ofrece la aplicación antes de borrar algo:
     restauración se anota en `logs/audit.jsonl` (una línea JSON por acción, con
     fecha, bytes liberados, archivos y si fue simulación). El archivo es de solo
     añadir y rota a los 5 MB conservando el historial.
+12. **Cancelación segura.** Si detienes un análisis o una limpieza, lo ya
+    borrado se conserva y la Papelera **no** se vacía.
 
 > Aun así, es una herramienta de mantenimiento: **haz una copia de seguridad de
 > tus datos importantes** y usa el Modo Simulación la primera vez.

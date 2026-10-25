@@ -7,6 +7,7 @@ Funciona igual ejecutando desde el código fuente y desde el .exe empaquetado:
 """
 
 import os
+import re
 import sys
 
 APP_NAME = "KILLCleaner"
@@ -48,3 +49,12 @@ def ensure_dir(path: str) -> str:
     except Exception:
         pass
     return path
+
+
+def system_drive() -> str:
+    """Letra de la unidad donde está instalado Windows, por ejemplo ``C:``.
+
+    Evita asumir ``C:`` en equipos con Windows en otra unidad o letra.
+    """
+    drive = os.environ.get("SystemDrive", "C:").strip().upper()
+    return drive if re.fullmatch(r"[A-Z]:", drive) else "C:"
