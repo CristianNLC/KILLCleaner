@@ -19,7 +19,8 @@ con CustomTkinter; funciona 100 % en local y sin telemetría.
 - **Cachés de desarrollo:** `pip`, `npm`, `yarn`, Discord, Spotify y
   `__pycache__` recursivo.
 - **Modo Gaming:** cierre *selectivo* de aplicaciones y purga del portapapeles.
-- **Auditoría:** estado SMART del disco y exportación de informes `.txt`.
+- **Auditoría:** estado SMART del disco, registro `logs/audit.jsonl` y
+  exportación de informes `.txt`.
 
 ---
 
@@ -41,6 +42,19 @@ Estas son las garantías que ofrece la aplicación antes de borrar algo:
 6. **Instancia única.** Un mutex de Windows impide que dos copias limpien a la vez.
 7. **La limpieza automática no destruye datos.** `--silent-clean` solo purga
    temporales y Prefetch: no vacía la papelera ni cierra aplicaciones.
+8. **Los duplicados van a la Papelera.** El buscador de duplicados usa
+   `SHFileOperationW` con `FOF_ALLOWUNDO`: si te equivocas puedes restaurarlos.
+   Si Windows no puede reciclar el archivo, **no se borra**.
+9. **Punto de restauración previo.** La limpieza profunda puede crear
+   automáticamente un punto de restauración antes de tocar nada (opción activada
+   por defecto, configurable en el Resumen).
+10. **Exclusiones configurables.** En *Utilidades → Carpetas Excluidas* puedes
+    añadir rutas que la limpieza de temporales ni el análisis tocarán, incluso
+    dentro de `%TEMP%`. Se guardan en `config.json`.
+11. **Registro de auditoría.** Cada limpieza, reciclaje, exclusión y punto de
+    restauración se anota en `logs/audit.jsonl` (una línea JSON por acción, con
+    fecha, bytes liberados, archivos y si fue simulación). El archivo es de solo
+    añadir y rota a los 5 MB conservando el historial.
 
 > Aun así, es una herramienta de mantenimiento: **haz una copia de seguridad de
 > tus datos importantes** y usa el Modo Simulación la primera vez.
@@ -154,13 +168,16 @@ core/
   optimizer.py           SFC, TRIM, SMART, restauración, tareas
   reporter.py            Informes de mantenimiento
   secrets.py             Carga de credenciales locales (env o secrets.json)
+  config.py              Configuración persistente y exclusiones
+  audit.py               Registro de auditoría logs/audit.jsonl
+  recycle.py             Envío a la Papelera con SHFileOperationW
 ui/
   main_window.py         Ventana principal (3 pestañas + modales)
   theme.py               Paleta y tipografía
   *_view.py              Subventanas de cada utilidad
 assets/icon.ico
 data/                    config.json, secrets.example.json e informe de ejemplo
-logs/                    Registros de limpiezas automáticas (no versionado)
+logs/                    Registros de limpieza y auditoría (no versionado)
 secrets.json             Credenciales locales opcionales (no versionado)
 ```
 

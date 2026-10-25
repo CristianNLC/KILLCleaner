@@ -46,6 +46,7 @@ def _run_silent_clean() -> int:
     No vacía la papelera ni cierra aplicaciones: una tarea programada nunca
     debe destruir datos del usuario sin supervisión.
     """
+    from core.audit import log_action
     from core.cleaner import clean_directory, get_target_directories
 
     started = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -70,10 +71,23 @@ def _run_silent_clean() -> int:
             f"[✓] Total: {round(total_bytes / (1024 * 1024), 2)} MB liberados "
             f"en {total_files} archivos."
         )
+        log_action(
+            "clean_temp_silent",
+            target="temporales",
+            bytes_freed=total_bytes,
+            files=total_files,
+            details={"origin": "scheduled_task"},
+        )
         _write_log(lines)
         return 0
     except Exception as e:
         lines.append(f"[x] Error durante la limpieza automática: {e}")
+        log_action(
+            "clean_temp_silent",
+            target="temporales",
+            result="error",
+            details={"origin": "scheduled_task", "message": str(e)},
+        )
         _write_log(lines)
         return 1
     finally:

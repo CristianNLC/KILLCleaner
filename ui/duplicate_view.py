@@ -6,6 +6,8 @@ from tkinter import filedialog, messagebox
 from ui.theme import *
 from core.duplicate_finder import find_duplicate_files
 from core.disk_analyzer import format_size
+from core.recycle import move_to_recycle_bin
+import core.audit as audit
 
 class DuplicateFinderWindow(ctk.CTkToplevel):
     def __init__(self, parent):
@@ -129,11 +131,24 @@ class DuplicateFinderWindow(ctk.CTkToplevel):
             messagebox.showerror("Error", f"No se pudo abrir el archivo: {e}")
 
     def _delete_file(self, path, row_widget):
-        if not messagebox.askyesno("Confirmar Eliminación", f"¿Eliminar definitivamente este archivo?\n\n{path}"):
+        if not messagebox.askyesno(
+            "Mover a la Papelera",
+            "¿Mover este archivo duplicado a la Papelera de reciclaje?\n\n"
+            f"{path}\n\n"
+            "Podrás restaurarlo desde la Papelera si te equivocas.",
+        ):
             return
-        try:
-            os.remove(path)
+
+        ok, msg = move_to_recycle_bin(path)
+        if ok:
+            audit.log_action("recycle_duplicate", target=path, files=1)
             row_widget.destroy()
-            messagebox.showinfo("Listo", "Archivo duplicado eliminado.")
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo eliminar el archivo: {e}")
+            messagebox.showinfo("Listo", msg)
+        else:
+            audit.log_action(
+                "recycle_duplicate", target=path, result="error", details={"message": msg}
+            )
+            messagebox.showerror(
+                "No se pudo reciclar",
+                f"{msg}\n\nEl archivo NO se ha eliminado.",
+            )

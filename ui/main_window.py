@@ -4,16 +4,16 @@ import threading
 import psutil
 import webbrowser
 import requests
-import json
 import tkinter as tk
 import customtkinter as ctk
 from tkinter import messagebox, filedialog
 
 from ui.theme import *
-from core.app_paths import data_dir
 from core.privileges import is_admin, relaunch_as_admin
 from core.secrets import get_donation_email, get_feedback_key
 from core.cleaner import get_target_directories, scan_target, clean_directory, empty_recycle_bin
+import core.audit as audit
+import core.config as app_config
 import core.system_cleaner as sys_cleaner
 import core.optimizer as opt
 from ui.disk_view import DiskVisualizerWindow
@@ -23,37 +23,16 @@ from ui.dism_view import DismManagerWindow
 from ui.duplicate_view import DuplicateFinderWindow
 from ui.services_view import ServicesOptimizerWindow
 
-# La configuración se guarda en data/ (fuente) o %LOCALAPPDATA%\KILLCleaner (.exe)
-CONFIG_DIR = data_dir()
-CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
-
 
 def load_theme_preference():
-    """Lee el tema guardado en data/config.json, o lo crea con 'Dark' por defecto."""
-    try:
-        if not os.path.exists(CONFIG_DIR):
-            os.makedirs(CONFIG_DIR, exist_ok=True)
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data.get("theme", "Dark")
-        else:
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                json.dump({"theme": "Dark"}, f, indent=4)
-            return "Dark"
-    except Exception:
-        return "Dark"
+    """Lee el tema guardado en config.json, o usa 'Dark' por defecto."""
+    theme = app_config.get_value("theme", "Dark")
+    return theme if theme in app_config.VALID_THEMES else "Dark"
 
 
 def save_theme_preference(theme_name):
-    """Guarda la preferencia de tema en data/config.json."""
-    try:
-        if not os.path.exists(CONFIG_DIR):
-            os.makedirs(CONFIG_DIR, exist_ok=True)
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump({"theme": theme_name}, f, indent=4)
-    except Exception:
-        pass
+    """Guarda la preferencia de tema sin perder el resto de la configuración."""
+    app_config.set_value("theme", theme_name)
 
 
 load_theme_config = load_theme_preference
@@ -452,6 +431,16 @@ class CleanerWindow(ctk.CTk):
         )
         self.chk_dry_run.pack(anchor="w", padx=16, pady=(8, 3))
 
+        self.chk_restore = ctk.CTkCheckBox(
+            options_card,
+            text="🛡️ Punto de restauración antes de limpieza profunda",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+            text_color=COLOR_TEXT_PRIMARY,
+        )
+        self.chk_restore.pack(anchor="w", padx=16, pady=3)
+        if app_config.get_value("restore_point_before_clean", True):
+            self.chk_restore.select()
+
     def _change_theme_mode(self, new_theme):
         """Cambia el modo de apariencia y guarda la preferencia en data/config.json."""
         ctk.set_appearance_mode(new_theme)
@@ -479,6 +468,7 @@ class CleanerWindow(ctk.CTk):
         self._create_action_row(self.tab_tools, "🛡️ Servicios Innecesarios & Telemetría", "Desactiva servicios secundarios como DiagTrack o Spooler.", "Ajustar", COLOR_CYAN, self.open_services_optimizer, accent_bar=COLOR_CYAN)
         self._create_action_row(self.tab_tools, "⏰ Tareas Programadas de Limpieza", "Programa mantenimientos periódicos de limpieza en el Programador de Windows.", "Configurar", COLOR_BLUE, self.open_scheduled_tasks_modal, accent_bar=COLOR_BLUE)
         self._create_action_row(self.tab_tools, "📄 Exportar Reporte de Mantenimiento", "Genera y guarda un informe de auditoría detallado con las acciones realizadas.", "Exportar", COLOR_SUCCESS, self.export_report_action, accent_bar=COLOR_SUCCESS)
+        self._create_action_row(self.tab_tools, "🚫 Carpetas Excluidas de la Limpieza", "Define rutas que la limpieza de temporales y el análisis nunca deben tocar, ni siquiera dentro de %TEMP%.", "Gestionar", COLOR_DANGER, self.open_exclusions_modal, accent_bar=COLOR_DANGER)
 
     def _create_action_row(self, parent, title, desc, btn_text, btn_color, command, accent_bar=COLOR_BLUE):
         """Construye una fila de tarjeta de acción con altura ampliada (70px) y alta legibilidad."""
@@ -551,11 +541,13 @@ class CleanerWindow(ctk.CTk):
             ("🛡️ Punto de Restauración", "Crea una instantánea de seguridad en Windows para revertir cualquier cambio del sistema ante imprevistos."),
             ("⚡ Optimización / TRIM de Disco", "Ejecuta el comando de recorte (re-trim) para extender la vida útil y velocidad de discos SSD y desfragmentación de HDD."),
             ("📊 Inspector de Espacio (TreeSize)", "Permite explorar visualmente qué carpetas ocupan más espacio en tu disco para liberar gigabytes a criterio propio."),
-            ("🧬 Buscador de Duplicados", "Calcula el hash criptográfico SHA-256 de los archivos para encontrar duplicados exactos aunque tengan nombres distintos."),
+            ("🧬 Buscador de Duplicados", "Calcula el hash criptográfico SHA-256 de los archivos para encontrar duplicados exactos aunque tengan nombres distintos. Los descartes se envían a la Papelera, así que puedes restaurarlos."),
             ("🚀 Gestor de Aplicaciones de Inicio", "Administra los programas que arrancan con Windows para acelerar el tiempo de inicio."),
             ("📦 Caché Dev / Gestores de Paquetes", "Purga cachés voluminosas de pip, npm, discord, spotify y carpetas __pycache__."),
             ("🎮 Modo Gaming (Liberador de RAM)", "Muestra las apps abiertas (Discord, Spotify, navegadores...) y cierra solo las que marques. Primero pide un cierre amable para que puedan guardar su sesión; nunca fuerza el cierre salvo que lo autorices."),
             ("🧪 Modo Simulación", "Marca esta casilla en el Resumen para ver qué se borraría y cuánto espacio se liberaría, sin eliminar ningún archivo. Ideal para la primera vez."),
+            ("🚫 Carpetas Excluidas", "Define rutas que la limpieza de temporales y el análisis nunca deben tocar, ni siquiera dentro de %TEMP%. Se guardan en config.json."),
+            ("📜 Registro de Auditoría", "Cada limpieza, reciclaje, exclusión y punto de restauración queda anotado en logs/audit.jsonl con fecha, bytes liberados y si fue una simulación."),
             ("🛡️ Servicios & Telemetría", "Permite pausar servicios en segundo plano como DiagTrack (rastreo de diagnóstico) o cola de impresión si no se emplean."),
             ("⏰ Tareas Programadas", "Automatiza la limpieza periódica semanal o diaria mediante el programador de Windows sin interrumpir tu trabajo."),
             ("📄 Exportar Reporte de Mantenimiento", "Guarda auditorías completas de espacio liberado, resumen de acciones y estado SMART en archivo de texto .txt."),
@@ -976,6 +968,14 @@ class CleanerWindow(ctk.CTk):
             b, count = clean_directory(path, log_callback=self.log, dry_run=dry_run)
             liberados_b += b
             liberados_f += count
+            audit.log_action(
+                "clean_temp",
+                target=path,
+                bytes_freed=b,
+                files=count,
+                dry_run=dry_run,
+                details={"label": label},
+            )
 
         # La papelera solo se vacía en modo real y si el usuario lo marcó
         if vaciar_papelera and not dry_run:
@@ -1015,6 +1015,8 @@ class CleanerWindow(ctk.CTk):
 
     def start_full_sys_clean_thread(self):
         dry_run = self.chk_dry_run.get() == 1
+        make_restore = self.chk_restore.get() == 1
+        app_config.set_value("restore_point_before_clean", bool(make_restore))
 
         if dry_run:
             messagebox.showinfo(
@@ -1025,7 +1027,12 @@ class CleanerWindow(ctk.CTk):
             "Confirmar",
             "¿Ejecutar limpieza de Windows Update, navegadores y reportes de errores?\n\n"
             "Los navegadores abiertos recibirán una petición de cierre "
-            "(podrán guardar su sesión).",
+            "(podrán guardar su sesión)."
+            + (
+                "\n\nAntes se creará un punto de restauración del sistema."
+                if make_restore
+                else ""
+            ),
         ):
             return
 
@@ -1035,31 +1042,62 @@ class CleanerWindow(ctk.CTk):
             busy=True,
         )
         threading.Thread(
-            target=self._run_full_sys_clean, args=(dry_run,), daemon=True
+            target=self._run_full_sys_clean,
+            args=(dry_run, make_restore),
+            daemon=True,
         ).start()
 
-    def _run_full_sys_clean(self, dry_run=False):
+    def _run_full_sys_clean(self, dry_run=False, make_restore=True):
         self.log("\n=== LIMPIEZA PROFUNDA DE SISTEMA & NAVEGADORES ===")
         if dry_run:
             self.log("[i] MODO SIMULACIÓN: no se borrará nada ni se cerrarán aplicaciones.")
+        elif make_restore:
+            self.log("[>] Creando punto de restauración previo...")
+            ok_restore, msg_restore = opt.create_restore_point("KILLCleaner_AntesDeLimpieza")
+            audit.log_action(
+                "restore_point",
+                target="sistema",
+                result="ok" if ok_restore else "error",
+                details={"message": msg_restore},
+            )
+            if ok_restore:
+                self.log(f"[✓] {msg_restore}")
+            else:
+                self.log(f"[!] No se pudo crear el punto de restauración: {msg_restore}")
 
         total = 0
 
         rutas, freed = sys_cleaner.clean_browser_caches(dry_run=dry_run, log_callback=self.log)
         total += freed
         self.log(f"[>] Navegadores: {len(rutas)} cachés ({round(freed / (1024 * 1024), 2)} MB)")
+        audit.log_action(
+            "clean_browser_caches", target="navegadores", bytes_freed=freed,
+            files=len(rutas), dry_run=dry_run,
+        )
 
         ok, freed = sys_cleaner.clean_windows_update(dry_run=dry_run, log_callback=self.log)
         total += freed
         self.log(f"[>] Windows Update: {'detectado' if ok else 'nada que purgar'} ({round(freed / (1024 * 1024), 2)} MB)")
+        audit.log_action(
+            "clean_windows_update", target="windows_update", bytes_freed=freed,
+            dry_run=dry_run, result="ok" if ok else "sin_datos",
+        )
 
         purged, freed = sys_cleaner.clean_logs_and_dumps(dry_run=dry_run, log_callback=self.log)
         total += freed
         self.log(f"[>] Volcados/logs: {purged} elementos ({round(freed / (1024 * 1024), 2)} MB)")
+        audit.log_action(
+            "clean_logs_and_dumps", target="logs", bytes_freed=freed,
+            files=purged, dry_run=dry_run,
+        )
 
         thumbs, freed = sys_cleaner.clean_thumbnail_cache(dry_run=dry_run, log_callback=self.log)
         total += freed
         self.log(f"[>] Miniaturas: {thumbs} archivos ({round(freed / (1024 * 1024), 2)} MB)")
+        audit.log_action(
+            "clean_thumbnails", target="miniaturas", bytes_freed=freed,
+            files=thumbs, dry_run=dry_run,
+        )
 
         total_mb = round(total / (1024 * 1024), 2)
 
@@ -1279,6 +1317,10 @@ class CleanerWindow(ctk.CTk):
         self.set_status("⏳", "Vaciando la papelera de reciclaje...", busy=True)
         def _task():
             res = empty_recycle_bin()
+            audit.log_action(
+                "empty_recycle_bin", target="papelera",
+                result="ok" if res else "error",
+            )
             if res:
                 self.log("[✓] Papelera vaciada con éxito.")
                 self.set_status("🟢", "Papelera vaciada con éxito.", busy=False, progress_val=1.0)
@@ -1312,6 +1354,12 @@ class CleanerWindow(ctk.CTk):
     def _run_restore_point(self):
         self.log("\n=== CREANDO PUNTO DE RESTAURACIÓN ===")
         success, msg = opt.create_restore_point("KILLCleaner_Backup")
+        audit.log_action(
+            "restore_point",
+            target="sistema",
+            result="ok" if success else "error",
+            details={"message": msg},
+        )
         if success:
             self.log(f"[✓] {msg}")
             self.set_status("🟢", "Punto de restauración creado con éxito.", busy=False, progress_val=1.0)
@@ -1338,6 +1386,124 @@ class CleanerWindow(ctk.CTk):
             self.log(f"[x] {msg}")
             self.set_status("⚠️", "No se pudo optimizar el disco.", busy=False, progress_val=1.0)
             self._show_modal_alert("Optimización TRIM", "Atención", f"Ocurrió un inconveniente al optimizar la unidad: {msg}", icon="⚠️", status_type="warning")
+
+    def open_exclusions_modal(self):
+        """Gestiona las carpetas que la limpieza nunca debe tocar."""
+        modal = ctk.CTkToplevel(self)
+        modal.title("Carpetas Excluidas de la Limpieza")
+        modal.geometry("640x480")
+        modal.minsize(560, 400)
+        modal.configure(fg_color=COLOR_BG_DARK)
+        modal.transient(self)
+        modal.grab_set()
+
+        try:
+            self.update_idletasks()
+            x = self.winfo_x() + (self.winfo_width() // 2) - 320
+            y = self.winfo_y() + (self.winfo_height() // 2) - 240
+            modal.geometry(f"640x480+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        ctk.CTkLabel(
+            modal, text="🚫 Carpetas Excluidas",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=16, weight="bold"),
+            text_color=COLOR_TEXT_PRIMARY,
+        ).pack(anchor="w", padx=20, pady=(18, 4))
+
+        ctk.CTkLabel(
+            modal,
+            text="La limpieza de temporales y el análisis omitirán estas carpetas y todo su contenido. "
+                 "Se guardan en config.json; las rutas críticas del sistema siguen protegidas aparte.",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_SECONDARY, anchor="w", justify="left", wraplength=590,
+        ).pack(fill="x", padx=20, pady=(0, 10))
+
+        list_frame = ctk.CTkScrollableFrame(modal, fg_color=COLOR_CARD, corner_radius=8)
+        list_frame.pack(fill="both", expand=True, padx=20, pady=(0, 8))
+
+        status_lbl = ctk.CTkLabel(
+            modal, text="", font=ctk.CTkFont(family=FONT_FAMILY, size=11),
+            text_color=COLOR_TEXT_SECONDARY,
+        )
+        status_lbl.pack(anchor="w", padx=20)
+
+        def refresh():
+            for widget in list_frame.winfo_children():
+                widget.destroy()
+
+            exclusions = app_config.get_exclusions()
+            if not exclusions:
+                ctk.CTkLabel(
+                    list_frame,
+                    text="No hay carpetas excluidas.\n"
+                         "Añade una para que la limpieza no la toque nunca.",
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=12),
+                    text_color=COLOR_TEXT_SECONDARY, justify="left",
+                ).pack(anchor="w", padx=12, pady=16)
+                return
+
+            for path in exclusions:
+                row = ctk.CTkFrame(list_frame, fg_color="#1a1c23", corner_radius=6)
+                row.pack(fill="x", padx=8, pady=4)
+
+                ctk.CTkLabel(
+                    row, text=path, font=ctk.CTkFont(family="Consolas", size=10),
+                    text_color=COLOR_TEXT_PRIMARY, anchor="w", justify="left",
+                    wraplength=470,
+                ).pack(side="left", fill="x", expand=True, padx=10, pady=8)
+
+                ctk.CTkButton(
+                    row, text="Quitar", width=70, height=24,
+                    fg_color=COLOR_DANGER, hover_color=COLOR_DANGER_HOVER,
+                    font=ctk.CTkFont(family=FONT_FAMILY, size=10, weight="bold"),
+                    command=lambda p=path: remove(p),
+                ).pack(side="right", padx=8, pady=8)
+
+        def remove(path):
+            if not messagebox.askyesno(
+                "Quitar exclusión", f"¿Dejar de excluir esta carpeta?\n\n{path}"
+            ):
+                return
+            ok, msg = app_config.remove_exclusion(path)
+            status_lbl.configure(
+                text=msg, text_color=COLOR_SUCCESS if ok else COLOR_DANGER
+            )
+            if ok:
+                audit.log_action("remove_exclusion", target=path)
+            refresh()
+
+        def add():
+            folder = filedialog.askdirectory(title="Carpeta que nunca se debe limpiar")
+            if not folder:
+                return
+            ok, msg = app_config.add_exclusion(folder)
+            status_lbl.configure(
+                text=msg, text_color=COLOR_SUCCESS if ok else COLOR_DANGER
+            )
+            if ok:
+                audit.log_action("add_exclusion", target=folder)
+            refresh()
+
+        footer = ctk.CTkFrame(modal, fg_color="transparent")
+        footer.pack(fill="x", padx=20, pady=(4, 16))
+
+        ctk.CTkButton(
+            footer, text="➕ Añadir carpeta...", width=170, height=32,
+            fg_color=COLOR_ACCENT, hover_color=COLOR_ACCENT_HOVER,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=add,
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            footer, text="Cerrar", width=100, height=32,
+            fg_color=COLOR_SIDEBAR, hover_color=COLOR_CARD_HOVER,
+            text_color=COLOR_TEXT_PRIMARY,
+            font=ctk.CTkFont(family=FONT_FAMILY, size=12, weight="bold"),
+            command=modal.destroy,
+        ).pack(side="right")
+
+        refresh()
 
     def open_scheduled_tasks_modal(self):
         modal = ctk.CTkToplevel(self)
