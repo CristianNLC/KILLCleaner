@@ -3,10 +3,11 @@
 ============================================================
 Fecha de Generación: 2026-10-25 00:00:00
 Sistema Operativo: Windows
+Versión de la aplicación: 1.1.0
 ------------------------------------------------------------
 RESUMEN DE ESTADO Y SALUD DEL SISTEMA:
   - Salud de Disco (SMART) : OK
-  - Espacio Libre en C:   : 120 GB Libres
+  - Espacio libre (C:) : 120 GB Libres
   - Memoria RAM en Uso   : 38%
   - Residuos Estimados   : 412.5 MB
 ------------------------------------------------------------
@@ -19,5 +20,5 @@ REGISTRO DE OPERACIONES Y MANTENIMIENTOS REALIZADOS:
 [>] Total recuperable: 412.5 MB en 1015 archivos.
 
 ============================================================
-            Fin del Informe - KILLCleaner v1.0
+            Fin del Informe - KILLCleaner v1.1.0
 ============================================================

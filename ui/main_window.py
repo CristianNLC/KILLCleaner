@@ -13,17 +13,23 @@ from ui.theme import *
 from core.app_paths import system_drive
 from core.privileges import is_admin, relaunch_as_admin
 from core.secrets import get_donation_email, get_feedback_key
+from core.version import APP_VERSION
+from core.reporter import export_html_report
 from core.cleaner import get_target_directories, scan_target, clean_directory, empty_recycle_bin
 import core.audit as audit
 import core.config as app_config
 import core.system_cleaner as sys_cleaner
 import core.optimizer as opt
+import core.updates as updates
 from ui.disk_view import DiskVisualizerWindow
 from ui.startup_view import StartupManagerWindow
 from ui.dev_cleaner_view import DevCleanerWindow
 from ui.dism_view import DismManagerWindow
 from ui.duplicate_view import DuplicateFinderWindow
 from ui.services_view import ServicesOptimizerWindow
+from ui.large_files_view import LargeFilesWindow
+from ui.audit_view import AuditHistoryWindow
+from ui.boot_view import BootDiagnosticsWindow
 
 
 def load_theme_preference():
@@ -120,7 +126,13 @@ class CleanerWindow(ctk.CTk):
             font=ctk.CTkFont(family=FONT_FAMILY, size=20, weight="bold"),
             text_color=COLOR_ACCENT
         )
-        brand_lbl.pack(padx=20, pady=(25, 20), anchor="w")
+        brand_lbl.pack(padx=20, pady=(25, 2), anchor="w")
+
+        ctk.CTkLabel(
+            self.sidebar, text=f"v{APP_VERSION}",
+            font=ctk.CTkFont(family=FONT_FAMILY, size=10),
+            text_color=COLOR_TEXT_SECONDARY,
+        ).pack(padx=22, pady=(0, 16), anchor="w")
 
         self.btn_nav_dash = self._create_nav_btn("📊 Resumen / Inicio", lambda: self._show_tab("dashboard"))
         self.btn_nav_maint = self._create_nav_btn("🧹 Mantenimiento", lambda: self._show_tab("maintenance"))
@@ -502,12 +514,16 @@ class CleanerWindow(ctk.CTk):
         self._create_action_row(self.tab_maint, "📶 Caché de Red y Servidores DNS", "Restablece la pila TCP/IP y vacía el resolver de nombres de dominio.", "Purgar", COLOR_CYAN, self.flush_network_action, accent_bar=COLOR_CYAN)
         self._create_action_row(self.tab_maint, "🩺 Reparar Archivos del Sistema (SFC)", "Ejecuta sfc /scannow para corregir componentes dañados del sistema.", "Escanear", COLOR_BLUE, self.start_sfc_thread, accent_bar=COLOR_BLUE)
         self._create_action_row(self.tab_maint, "📦 Mantenimiento de Imagen (DISM)", "Inspecciona el almacén de componentes WinSxS y repara la imagen oficial.", "Abrir DISM", COLOR_ORANGE, self.open_dism_manager, accent_bar=COLOR_ORANGE)
+        self._create_action_row(self.tab_maint, "⏱️ Diagnóstico de Arranque", "Consulta cuánto tarda Windows en iniciar y detecta arranques lentos.", "Analizar", COLOR_CYAN, self.open_boot_diagnostics, accent_bar=COLOR_CYAN)
 
     def _build_tools_tab(self):
         self.tab_tools = ctk.CTkScrollableFrame(self.views_container, fg_color="transparent")
 
         self._create_action_row(self.tab_tools, "📊 Inspector Visual de Espacio (TreeSize)", "Examina particiones y ordena las carpetas y archivos más pesados.", "Abrir", COLOR_AMBER, self.open_disk_visualizer, accent_bar=COLOR_AMBER)
         self._create_action_row(self.tab_tools, "🧬 Buscador de Duplicados (SHA-256)", "Encuentra copias exactas de archivos mediante cálculo criptográfico.", "Examinar", COLOR_AMBER, self.open_duplicate_finder, accent_bar=COLOR_AMBER)
+        self._create_action_row(self.tab_tools, "🐘 Archivos Grandes", "Localiza los archivos más pesados de una carpeta o unidad y envíalos a la Papelera.", "Buscar", COLOR_AMBER, self.open_large_files, accent_bar=COLOR_AMBER)
+        self._create_action_row(self.tab_tools, "📜 Historial de Auditoría", "Consulta y exporta todo lo que KILLCleaner ha hecho en este equipo.", "Ver historial", COLOR_BLUE, self.open_audit_history, accent_bar=COLOR_BLUE)
+        self._create_action_row(self.tab_tools, "🔄 Buscar Actualizaciones", "Comprueba si hay una versión más reciente publicada en GitHub.", "Comprobar", COLOR_CYAN, self.check_updates_action, accent_bar=COLOR_CYAN)
         self._create_action_row(self.tab_tools, "🚀 Gestor de Aplicaciones de Inicio", "Administra los programas que arrancan con Windows para acelerar el inicio.", "Gestionar", COLOR_BLUE, self.open_startup_manager, accent_bar=COLOR_BLUE)
         self._create_action_row(self.tab_tools, "📦 Caché Dev / Gestores de Paquetes", "Purga cachés voluminosas de pip, npm, discord, spotify y __pycache__.", "Limpiar", COLOR_PURPLE, self.open_dev_cleaner, accent_bar=COLOR_PURPLE)
         self._create_action_row(self.tab_tools, "🎮 Modo Gaming (Liberador de RAM)", "Elige qué aplicaciones cerrar (con guardado seguro) y purga el portapapeles.", "Activar", COLOR_SUCCESS, self.start_gaming_mode_thread, accent_bar=COLOR_SUCCESS)
@@ -595,10 +611,13 @@ class CleanerWindow(ctk.CTk):
             ("🎮 Modo Gaming (Liberador de RAM)", "Muestra las apps abiertas (Discord, Spotify, navegadores...) y cierra solo las que marques. Primero pide un cierre amable para que puedan guardar su sesión; nunca fuerza el cierre salvo que lo autorices."),
             ("🧪 Modo Simulación", "Marca esta casilla en el Resumen para ver qué se borraría y cuánto espacio se liberaría, sin eliminar ningún archivo. Ideal para la primera vez."),
             ("🚫 Carpetas Excluidas", "Define rutas que la limpieza de temporales y el análisis nunca deben tocar, ni siquiera dentro de %TEMP%. Se guardan en config.json."),
-            ("📜 Registro de Auditoría", "Cada limpieza, reciclaje, exclusión y punto de restauración queda anotado en logs/audit.jsonl con fecha, bytes liberados y si fue una simulación."),
+            ("📜 Registro de Auditoría", "Cada limpieza, reciclaje, exclusión y punto de restauración queda anotado en logs/audit.jsonl con fecha, bytes liberados y si fue una simulación. La ventana Historial permite filtrarlo y exportarlo a CSV."),
+            ("🐘 Archivos Grandes", "Busca los archivos más pesados de una carpeta o unidad. Solo lee metadatos; para liberar espacio los envía a la Papelera con confirmación previa."),
+            ("⏱️ Diagnóstico de Arranque", "Muestra cuánto tarda Windows en iniciar según el registro de eventos, con el último arranque, el promedio y los extremos."),
+            ("🔄 Buscar Actualizaciones", "Consulta la última versión publicada en GitHub. Nunca descarga ni instala nada: si hay una nueva, abre la página de descarga."),
             ("🛡️ Servicios & Telemetría", "Permite pausar servicios en segundo plano como DiagTrack (rastreo de diagnóstico) o cola de impresión si no se emplean."),
             ("⏰ Tareas Programadas", "Automatiza la limpieza periódica semanal o diaria mediante el programador de Windows sin interrumpir tu trabajo."),
-            ("📄 Exportar Reporte de Mantenimiento", "Guarda auditorías completas de espacio liberado, resumen de acciones y estado SMART en archivo de texto .txt."),
+            ("📄 Exportar Reporte de Mantenimiento", "Guarda auditorías completas de espacio liberado, resumen de acciones y estado SMART en archivo de texto .txt o en un informe HTML autocontenido."),
             ("☕ Apoyar & 💬 Buzón de Dudas", "Canal directo de contacto anónimo para enviar sugerencias/dudas y donaciones voluntarias por Cafecito / Mercado Pago.")
         ]
 
@@ -978,6 +997,64 @@ class CleanerWindow(ctk.CTk):
 
     def open_services_optimizer(self):
         ServicesOptimizerWindow(self).grab_set()
+
+    def open_large_files(self):
+        LargeFilesWindow(self)
+
+    def open_audit_history(self):
+        AuditHistoryWindow(self)
+
+    def open_boot_diagnostics(self):
+        BootDiagnosticsWindow(self)
+
+    def check_updates_action(self):
+        """Consulta la última release publicada en GitHub (sin descargar nada)."""
+        self.set_status("⏳", "Consultando la última versión publicada...", busy=True)
+
+        def _task():
+            result = updates.check_for_update()
+
+            def _ui():
+                if not result.get("ok"):
+                    self.set_status(
+                        "⚠️", "No se pudo comprobar la actualización.",
+                        busy=False, progress_val=0,
+                    )
+                    self._show_modal_alert(
+                        "Actualizaciones", "No se pudo comprobar",
+                        result.get("error", "Error desconocido."),
+                        icon="⚠️", status_type="warning",
+                    )
+                    return
+
+                latest = result.get("latest") or APP_VERSION
+                if result.get("newer"):
+                    self.set_status(
+                        "🟢", f"Actualización disponible: {latest}",
+                        busy=False, progress_val=1.0,
+                    )
+                    self.log(f"[i] Versión instalada: {APP_VERSION} · disponible: {latest}")
+                    if messagebox.askyesno(
+                        "Actualización disponible",
+                        f"Hay una versión más reciente ({latest}).\n"
+                        f"Tienes instalada la {APP_VERSION}.\n\n"
+                        "¿Abrir la página de descarga en el navegador?",
+                    ):
+                        webbrowser.open(result.get("url") or updates.RELEASES_PAGE)
+                else:
+                    self.set_status(
+                        "🟢", f"Estás al día (v{APP_VERSION}).",
+                        busy=False, progress_val=1.0,
+                    )
+                    self._show_modal_alert(
+                        "Actualizaciones", "Todo al día",
+                        f"Tienes la última versión disponible (v{APP_VERSION}).",
+                        icon="🔄", status_type="success",
+                    )
+
+            self.after(0, _ui)
+
+        threading.Thread(target=_task, daemon=True).start()
 
     def check_smart_action(self):
         self.set_status("⏳", "Consultando diagnóstico SMART del disco principal...", busy=True)
@@ -1762,7 +1839,11 @@ class CleanerWindow(ctk.CTk):
         target_path = filedialog.asksaveasfilename(
             defaultextension=".txt",
             initialfile="report_killcleaner.txt",
-            filetypes=[("Archivos de texto (*.txt)", "*.txt"), ("Todos los archivos (*.*)", "*.*")],
+            filetypes=[
+                ("Informe de texto (*.txt)", "*.txt"),
+                ("Informe HTML (*.html)", "*.html"),
+                ("Todos los archivos (*.*)", "*.*"),
+            ],
             title="Guardar Reporte de Mantenimiento"
         )
         if not target_path:
@@ -1776,7 +1857,13 @@ class CleanerWindow(ctk.CTk):
             "trash": self.card_trash["val"].cget("text")
         }
 
-        ok, msg = opt.export_maintenance_report(log_text, stats, target_path)
+        if target_path.lower().endswith((".html", ".htm")):
+            ok, msg = export_html_report(
+                log_text, stats, target_path, audit.read_entries(limit=100)
+            )
+        else:
+            ok, msg = opt.export_maintenance_report(log_text, stats, target_path)
+
         if ok:
             self.log(f"[✓] Reporte guardado en: {target_path}")
             self._show_modal_alert("Reporte de Mantenimiento", "¡Reporte Exportado!", f"El informe de auditoría se guardó correctamente en:\n{target_path}", icon="📄", status_type="success")

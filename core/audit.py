@@ -36,6 +36,71 @@ def _rotate_if_needed(path):
         pass
 
 
+def _audit_files():
+    """Rutas de auditoría de más antigua a más reciente (incluye rotados)."""
+    try:
+        folder = logs_dir()
+        names = sorted(
+            name
+            for name in os.listdir(folder)
+            if name.startswith("audit") and name.endswith(".jsonl")
+        )
+        return [os.path.join(folder, name) for name in names]
+    except OSError:
+        return []
+
+
+def read_entries(limit=None, include_rotated=True):
+    """Lee las entradas de auditoría, de la más reciente a la más antigua.
+
+    Las líneas dañadas se ignoran para que un archivo a medio escribir no
+    rompa el historial. ``limit`` corta la lista después de ordenar.
+    """
+    entries = []
+    paths = _audit_files() if include_rotated else [audit_path()]
+    for path in paths:
+        try:
+            with open(path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        item = json.loads(line)
+                    except (json.JSONDecodeError, ValueError):
+                        continue
+                    if isinstance(item, dict):
+                        entries.append(item)
+        except OSError:
+            continue
+
+    entries.sort(key=lambda item: str(item.get("ts", "")), reverse=True)
+    if limit is not None:
+        entries = entries[:limit]
+    return entries
+
+
+def summarize(entries):
+    """Totales útiles para el historial y los informes."""
+    total_bytes = 0
+    total_files = 0
+    by_action = {}
+    for item in entries:
+        try:
+            total_bytes += int(item.get("bytes", 0) or 0)
+            total_files += int(item.get("files", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        action = str(item.get("action", "desconocida"))
+        by_action[action] = by_action.get(action, 0) + 1
+    return {
+        "count": len(entries),
+        "bytes": total_bytes,
+        "files": total_files,
+        "by_action": by_action,
+    }
+
+
 def log_action(
     action,
     target="",

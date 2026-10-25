@@ -1,4 +1,4 @@
-# ⚡ KILLCleaner v1.0
+# ⚡ KILLCleaner v1.1
 
 Suite de escritorio para Windows que reúne limpieza de residuos, mantenimiento
 del sistema y utilidades de diagnóstico en una sola interfaz. Hecha en Python
@@ -25,8 +25,16 @@ con CustomTkinter; funciona 100 % en local y sin telemetría.
 - **Rendimiento:** recorrido con `os.scandir` (sin llamadas `stat` redundantes),
   descarte por hash parcial en duplicados y soporte de rutas de más de 260
   caracteres.
+- **Archivos grandes:** localiza los archivos más pesados de una carpeta o
+  unidad y los envía a la Papelera con confirmación.
+- **Historial de auditoría:** ventana para consultar, filtrar y exportar a CSV
+  todo lo registrado en `logs/audit.jsonl`.
+- **Diagnóstico de arranque:** duración de los últimos inicios de Windows según
+  el registro de eventos, con promedio y extremos.
+- **Actualizaciones:** comprueba la última versión publicada en GitHub; nunca
+  descarga ni instala nada.
 - **Auditoría:** estado SMART del disco, registro `logs/audit.jsonl` y
-  exportación de informes `.txt`.
+  exportación de informes `.txt` o HTML autocontenido.
 
 ---
 
@@ -67,6 +75,12 @@ Estas son las garantías que ofrece la aplicación antes de borrar algo:
     simbólicos ni puntos de unión (`junction`), y la ruta se valida también por
     su destino real: un enlace dentro de `%TEMP%` no puede llevar la limpieza a
     una carpeta protegida.
+14. **Archivos grandes solo a la Papelera.** El buscador de archivos grandes
+    únicamente lee metadatos; para liberar espacio mueve a la Papelera lo que
+    confirmes, uno por uno, y anota cada movimiento en la auditoría.
+15. **Comprobar actualizaciones no ejecuta nada.** La consulta a GitHub es de
+    solo lectura y usa la API pública. Si hay una versión nueva, abre la página
+    de descarga en el navegador; no descarga ni instala archivos.
 
 > Aun así, es una herramienta de mantenimiento: **haz una copia de seguridad de
 > tus datos importantes** y usa el Modo Simulación la primera vez.
@@ -179,7 +193,11 @@ core/
   services_optimizer.py  Servicios de Windows (DiagTrack, WerSvc, Spooler)
   dism_tool.py           DISM en streaming
   optimizer.py           SFC, TRIM, SMART, restauración, tareas
-  reporter.py            Informes de mantenimiento
+  reporter.py            Informes de mantenimiento (.txt y HTML)
+  large_files.py         Búsqueda de archivos grandes (solo metadatos)
+  updates.py             Consulta de la última release en GitHub
+  boot_diagnostics.py    Duración de arranques (evento 100 de Windows)
+  version.py             Versión única de la aplicación
   secrets.py             Carga de credenciales locales (env o secrets.json)
   config.py              Configuración persistente y exclusiones
   audit.py               Registro de auditoría logs/audit.jsonl

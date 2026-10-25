@@ -1,8 +1,8 @@
-; Script de Inno Setup para KILLCleaner v1.0
+; Script de Inno Setup para KILLCleaner v1.1
 [Setup]
 AppId={{D9A83F12-72E4-4D61-A79B-98F1C37B49B1}
 AppName=KILLCleaner
-AppVersion=1.0
+AppVersion=1.1.0
 AppPublisher=KILLSecurity Suite
 DefaultDirName={autopf}\KILLCleaner
 DefaultGroupName=KILLCleaner
